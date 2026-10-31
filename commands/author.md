@@ -34,7 +34,7 @@ Create a new `.model.md` document through interactive ideation. You describe con
 1. Read the file.
 2. Run the meta-compiler check to rebuild the symbol state:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
+   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
    ```
 3. Rebuild the running symbol name registry from the existing validate blocks (read all symbol names already registered).
 4. Show the user a summary: number of sections, symbol count by type, any warnings.
@@ -224,14 +224,14 @@ After approval:
 
 2. Run the meta-compiler check on the full document:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
+   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
    ```
 
 3. **If the check fails:** Show the errors, fix them in the `.model.md` file, and re-run. Repeat until the check passes (errors only — orphan warnings are expected). Do NOT proceed to the next section until the current one passes.
 
 4. **Prose-math reconciliation.** After the meta-compiler check passes, run reconciliation checks scoped to the current section:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && PYTHONPATH=src python3 -m meta_compiler.cli reconcile "<file_path>" --section "<heading>"
+   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli reconcile "<file_path>" --section "<heading>"
    ```
    - If warnings are printed, show them to the user.
    - Then show the manual reconciliation prompt:
@@ -261,7 +261,7 @@ When the user signals they are done:
 
 1. Run a final full-document check:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
+   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
    ```
 
 2. **Epistemic language scan.** Before showing the summary, scan the full `.model.md` text for language that may overstate epistemic status. Flag instances with suggested replacements:
@@ -328,7 +328,7 @@ Reference Z3 results in the four-tests conclusion frame:
 
 6. If the user wants to compile, run:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && PYTHONPATH=src python3 -m meta_compiler.cli compile "<file_path>" --output "<output_dir>"
+   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli compile "<file_path>" --output "<output_dir>"
    ```
    Show what was generated. If strict-mode validation fails (orphan errors), offer to fix or compile without strict.
 

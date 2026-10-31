@@ -89,7 +89,7 @@ For each section that contains `$$...$$` math blocks, in document order:
    a. Insert the approved fixture + validate blocks into the `.model.md` file, placed immediately after the last `$$...$$` math block in that section.
    b. Run the meta-compiler check on the partial document:
       ```bash
-      cd ${CLAUDE_PLUGIN_ROOT} && PYTHONPATH=src python3 -m meta_compiler.cli check "<output_path>"
+      cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<output_path>"
       ```
    c. **If the check fails:** Show the errors to the user, fix them in the `.model.md` file, and re-run the check. Repeat until the check passes (errors only — orphan warnings are expected in authoring mode). Do NOT proceed to the next section until the current section's blocks pass validation.
    d. **If the check passes:** Update the running symbol name registry and move to the next section.
@@ -177,7 +177,7 @@ All symbol types (Sets, Parameters, Variables, Expressions, Constraints, Objecti
 After all sections are processed, run one final full-document check:
 
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT} && PYTHONPATH=src python3 -m meta_compiler.cli check "<output_path>"
+cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<output_path>"
 ```
 
 This should pass cleanly (since each section was validated incrementally). If any new errors appear from cross-section interactions, fix them.
