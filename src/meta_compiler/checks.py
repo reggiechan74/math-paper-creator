@@ -174,7 +174,10 @@ def _extract_names_from_source(fn, registry: "Registry") -> set[str]:
         for tok_type, tok_string, _, _, _ in tokens:
             if tok_type == tokenize.NAME and tok_string in registered:
                 found.add(tok_string)
-    except tokenize.TokenizeError:
+    except (tokenize.TokenError, SyntaxError):
+        # Lambda source captured mid-expression can be an incomplete statement.
+        # Python <3.12 raises TokenError at EOF; 3.12+ may raise SyntaxError.
+        # Keep whatever names were found before the error.
         pass
 
     return found
