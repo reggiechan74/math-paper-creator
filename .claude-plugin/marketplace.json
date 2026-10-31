@@ -1,0 +1,15 @@
+{
+  "name": "math-paper-creator",
+  "owner": {
+    "name": "Reggie Chan"
+  },
+  "description": "Single-plugin marketplace for Math Paper Creator",
+  "plugins": [
+    {
+      "name": "math-paper-creator",
+      "source": "./",
+      "description": "Author validated math papers interactively. Formalize concepts into prose, LaTeX math, and executable Python validation — each section checked before the next begins.",
+      "version": "0.7.0"
+    }
+  ]
+}
