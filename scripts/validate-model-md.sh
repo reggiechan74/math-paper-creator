@@ -4,16 +4,29 @@
 # Reads PostToolUse JSON from stdin.
 # If the edited file is .model.md, runs the meta-compiler check pipeline.
 # Returns structured JSON feedback to Claude Code.
+#
+# hooks.json already filters to Write/Edit on *.model.md via `if`; the checks
+# below are kept so the script is safe to run on its own.
 
-# Find the meta-compiler package relative to this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Prefer the managed venv (see setup_env.py); fall back to python3 on PATH.
+PY="python3"
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/venv/.ready" ]; then
+  for candidate in "${CLAUDE_PLUGIN_DATA}/venv/bin/python" "${CLAUDE_PLUGIN_DATA}/venv/Scripts/python.exe"; do
+    if [ -x "$candidate" ]; then
+      PY="$candidate"
+      break
+    fi
+  done
+fi
 
 # Read stdin before the heredoc consumes it
 HOOK_INPUT="$(cat)"
 
 # Delegate everything to Python for safe JSON handling
-HOOK_INPUT="$HOOK_INPUT" exec python3 - "$PROJECT_DIR" <<'PYTHON_SCRIPT'
+HOOK_INPUT="$HOOK_INPUT" exec "$PY" - "$PROJECT_DIR" <<'PYTHON_SCRIPT'
 import json
 import os
 import sys
@@ -44,8 +57,28 @@ if not file_path_obj.is_file():
 # Add meta-compiler src to path
 sys.path.insert(0, str(project_dir / "src"))
 
-from meta_compiler.compiler import check_document
-from meta_compiler.compiler.parser import parse_document, coverage_metric
+try:
+    import numpy  # noqa: F401  (required by the meta-compiler)
+    from meta_compiler.compiler import check_document
+    from meta_compiler.compiler.parser import parse_document, coverage_metric
+except ImportError as exc:
+    data_dir = os.environ.get("CLAUDE_PLUGIN_DATA", "")
+    hint = (
+        f" The plugin installs its dependencies in the background on session start;"
+        f" see {data_dir}/setup.log if this persists."
+        if data_dir
+        else " Install numpy for the python3 on PATH (pip install numpy)."
+    )
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": (
+                f"math-paper-creator: live validation of {file_path} was skipped "
+                f"because a Python dependency is missing ({exc}).{hint}"
+            ),
+        }
+    }))
+    sys.exit(0)
 
 source = file_path_obj.read_text()
 

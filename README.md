@@ -1,7 +1,7 @@
 # math-paper-creator
 
 <!-- badges-start -->
-![Version](https://img.shields.io/badge/version-0.7.0-blue)
+![Version](https://img.shields.io/badge/version-0.8.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-blueviolet)
 <!-- badges-end -->
@@ -85,15 +85,27 @@ The `runner.py` is immediately repeatable. You can run it in CI, share it with c
 ```
 
 ### Local Development
-Clone `reggiechan74/math-paper-creator`, then from inside the clone:
+Clone `reggiechan74/math-paper-creator`, then either load it for a single session:
+```
+claude --plugin-dir /path/to/math-paper-creator
+```
+or register the clone as a marketplace (edits take effect after `/reload-plugins`):
 ```
 /plugin marketplace add .
 /plugin install math-paper-creator@math-paper-creator
 ```
 
-## Commands
+Before committing, run the same checks as CI:
+```
+python -m pytest -q
+claude plugin validate --strict .
+```
 
-| Command | Description |
+## Skills
+
+Each workflow is a plugin skill, invoked as a slash command. The interactive workflows (`author`, `onboard`, `review`, `compile`, `plain-english`) run only when you invoke them; `check`, `status`, `report` and `paper` can also be used by Claude on its own when relevant.
+
+| Skill | Description |
 |---------|-------------|
 | `/math-paper-creator:author [file]` | Author a new paper interactively — ideate, formalize, validate section-by-section |
 | `/math-paper-creator:onboard <file>` | Convert an existing paper — wrap existing math with validation blocks |
@@ -167,7 +179,15 @@ Constraints iterate over a single set via `over`. For multi-index constraints, i
 
 ## Requirements
 
-Python 3.10+ with the `meta_compiler` package available on the Python path. The package is included in this plugin directory.
+- **Python 3.10+** available as `python3` on your `PATH`, with the standard `venv` module (on Debian/Ubuntu: `apt install python3-venv`).
 
-- **numpy** (>=1.24) — required dependency
-- **z3-solver** (>=4.12) — optional, for axiom verification (`pip install meta-compiler[verification]`)
+That's all you need to install yourself. On the first session after install, the plugin creates a private virtual environment in its data directory (`~/.claude/plugins/data/<plugin-id>/venv`) and installs its dependencies there in the background:
+
+- **numpy** (>=1.24) — required by the meta-compiler
+- **z3-solver** (>=4.12) — axiom verification
+
+The environment survives plugin updates and is rebuilt only when `requirements.txt` changes. Setup output goes to `setup.log` in the same data directory. Until setup finishes, the plugin uses `python3` from your `PATH`; if numpy isn't available there, live validation is skipped with a notice instead of failing.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

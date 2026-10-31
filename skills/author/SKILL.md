@@ -1,15 +1,18 @@
 ---
-description: "Author a new math paper interactively — ideate, formalize, validate section-by-section"
-argument-hint: "[path-to-file.model.md]"
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob"]
-arguments:
-  - name: "file"
-    description: "Path to a .model.md file (new or existing to resume)"
+name: author
+description: Author a new validated math paper (.model.md) interactively — ideate, formalize into prose, LaTeX and Python validation blocks, and validate section by section. Also resumes an existing .model.md.
+argument-hint: "[path-to-file.model.md | path-to-file.review.md]"
+allowed-tools: Bash Read Write Edit Glob
+disable-model-invocation: true
 ---
 
 # Author a Math Paper
 
 Create a new `.model.md` document through interactive ideation. You describe concepts — Claude formalizes them into complete paper sections with prose, display math, and validated Python blocks. Each section is written and validated before moving on.
+
+**Arguments:** `$ARGUMENTS`
+
+**Paths:** Resolve every file path to an absolute path before passing it to the CLI (relative paths are relative to the user's working directory). Run the CLI exactly as shown below via `"${CLAUDE_PLUGIN_ROOT}/scripts/mpc"` — never `cd` into the plugin directory.
 
 ## Step 1: Initialize
 
@@ -34,7 +37,7 @@ Create a new `.model.md` document through interactive ideation. You describe con
 1. Read the file.
 2. Run the meta-compiler check to rebuild the symbol state:
    ```bash
-   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" check "<absolute_file_path>"
    ```
 3. Rebuild the running symbol name registry from the existing validate blocks (read all symbol names already registered).
 4. Show the user a summary: number of sections, symbol count by type, any warnings.
@@ -224,14 +227,14 @@ After approval:
 
 2. Run the meta-compiler check on the full document:
    ```bash
-   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" check "<absolute_file_path>"
    ```
 
 3. **If the check fails:** Show the errors, fix them in the `.model.md` file, and re-run. Repeat until the check passes (errors only — orphan warnings are expected). Do NOT proceed to the next section until the current one passes.
 
 4. **Prose-math reconciliation.** After the meta-compiler check passes, run reconciliation checks scoped to the current section:
    ```bash
-   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli reconcile "<file_path>" --section "<heading>"
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" reconcile "<absolute_file_path>" --section "<heading>"
    ```
    - If warnings are printed, show them to the user.
    - Then show the manual reconciliation prompt:
@@ -261,7 +264,7 @@ When the user signals they are done:
 
 1. Run a final full-document check:
    ```bash
-   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<file_path>"
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" check "<absolute_file_path>"
    ```
 
 2. **Epistemic language scan.** Before showing the summary, scan the full `.model.md` text for language that may overstate epistemic status. Flag instances with suggested replacements:
@@ -328,92 +331,10 @@ Reference Z3 results in the four-tests conclusion frame:
 
 6. If the user wants to compile, run:
    ```bash
-   cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli compile "<file_path>" --output "<output_dir>"
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" compile "<absolute_file_path>" --output "<absolute_output_dir>"
    ```
    Show what was generated. If strict-mode validation fails (orphan errors), offer to fix or compile without strict.
 
 ## API reference and known constraints
 
-```python
-from meta_compiler import Set, Parameter, Variable, Expression, Constraint, Objective, S, Axiom, Property, registry
-
-# Sets — fixture data must be a list
-Set("W", description="Set of workers")
-
-# Parameters (indexed, with units) — fixture data must be a dict
-Parameter("cap", index=["W"], domain="nonneg_real", units="hours",
-          description="Capacity per worker")
-
-# Variables (indexed, with bounds) — fixture data must be a dict
-Variable("x", index=["W", "T"], domain="continuous", bounds=(0, None),
-         units="hours", description="Hours assigned")
-
-# Expressions — define derived quantities
-# NOTE: Expression results are NOT available through proxy indexing.
-# You cannot do `load[i]` in a Constraint lambda — the proxy only
-# looks up fixture data, and Expressions have no fixture data.
-# Instead, inline the computation in Constraints/Objectives.
-Expression("load",
-           definition=lambda i: sum(x[i, t] for t in S("T")),
-           index=["W"], units="hours",
-           description="Total load per worker")
-
-# Constraints — lambda must take exactly ONE positional argument
-# The `over` parameter accepts a SINGLE set name (not a list of sets).
-# For multi-index iteration, use `over` for the outer set and iterate
-# inner sets inside the lambda body.
-Constraint("cap_limit",
-           expr=lambda i: sum(x[i, t] for t in S("T")) <= cap[i],
-           over="W",
-           description="Load cannot exceed capacity")
-
-# WRONG — multi-set `over` does not work:
-#   over=["W", "T"]  ← only uses first element, lambda gets 1 arg
-#
-# WRONG — Expression proxy indexing does not work:
-#   expr=lambda i: load[i] <= cap[i]  ← raises "No fixture data for 'load'"
-#
-# RIGHT — inline the expression computation:
-#   expr=lambda i: sum(x[i, t] for t in S("T")) <= cap[i]
-
-# For multi-set constraints, iterate inner sets inside the lambda:
-Constraint("demand",
-           expr=lambda j: all(
-               sum(x[i, j, p] for i in S("W")) >= d[j, p]
-               for p in S("P")
-           ),
-           over="J",
-           description="Demand coverage for every project type and team")
-
-# Scalar parameters in Objective/Constraint lambdas:
-# Scalar fixture values (int, float, str) are auto-unwrapped as raw
-# Python types, so arithmetic works directly: M * beta, H - M, etc.
-# No need to extract from registry.data_store for scalars.
-
-# Axioms — foundational assumptions (z3_expr optional, for machine verification)
-Axiom("A1", statement="H > 0", z3_expr=lambda: H > 0, description="Positivity")
-
-# Properties — derived claims that follow from axioms
-Property("P1", claim="H - M >= 0",
-         z3_expr=lambda: H - M >= 0,
-         given=["A1", "A2"],
-         description="Non-negative effective time")
-
-# Objectives — lambda takes ZERO arguments
-Objective("total_output",
-          expr=lambda: sum(
-              sum(x[i, t] for t in S("T"))
-              for i in S("W")
-          ),
-          sense="maximize",
-          description="Maximize total productive hours")
-
-# Always end with
-registry.run_tests()
-```
-
-### Symbol naming rules
-
-All symbol types (Sets, Parameters, Variables, Expressions, Constraints, Objectives) share a **single global namespace**. A Constraint named `"capacity"` collides with a Parameter named `"capacity"`. Use distinct, descriptive names:
-- Constraints: `"cap_limit"`, `"demand_coverage"`, `"effort_capacity"`
-- Parameters: `"cap"`, `"capacity_hours"`, `"d_min"`
+Before writing any `python:fixture` or `python:validate` block, read `${CLAUDE_PLUGIN_ROOT}/references/meta-compiler-api.md`. It documents every symbol type (`Set`, `Parameter`, `Variable`, `Expression`, `Constraint`, `Objective`, `Axiom`, `Property`), the known pitfalls (single-set `over`, no proxy indexing of Expressions, lambda arity), and the single global namespace rule for symbol names.

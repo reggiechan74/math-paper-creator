@@ -1,15 +1,16 @@
 ---
-description: "Review a draft math paper for mathematical coherence — layered assessment with interactive discussion"
-argument-hint: "<path-to-file.md or .model.md or .pdf>"
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob"]
-arguments:
-  - name: "file"
-    description: "Path to a .md, .model.md, or .pdf file to review"
+name: review
+description: Review a draft math paper (.md, .model.md or .pdf) for mathematical coherence — five-layer assessment with interactive discussion, producing a .review.md findings file that /math-paper-creator:author can build from.
+argument-hint: "<path-to-file.md | .model.md | .pdf>"
+allowed-tools: Bash Read Write Edit Glob
+disable-model-invocation: true
 ---
 
 # Review a Math Paper
 
 Perform a layered mathematical coherence assessment of a draft paper. Walk through five review layers with the user, resolve every finding through discussion, and produce a findings file that can be fed to `/math-paper-creator:author` in a fresh session.
+
+**Arguments:** `$ARGUMENTS`
 
 ## Step 1: Locate and load the file
 
@@ -80,7 +81,7 @@ Run five review layers in order. For each layer:
    - "Acknowledged — moving on?"
    - "Do you disagree with this assessment?"
 
-   During discussion, ask follow-up questions to understand the user's intent: "What did you actually mean this section to express?" or "Should this be a constraint or just an observation?" Capture these clarifications — the findings file needs the user's thinking, not just Claude's critique, so that `/author` can use it as context.
+   During discussion, ask follow-up questions to understand the user's intent: "What did you actually mean this section to express?" or "Should this be a constraint or just an observation?" Capture these clarifications — the findings file needs the user's thinking, not just Claude's critique, so that `/math-paper-creator:author` can use it as context.
 5. **Resolve each finding** before moving to the next. Every finding must reach one of these outcomes:
    - **Resolved with decision** — the user states what should be done. Capture the decision and the user's reasoning/intent behind it.
    - **Resolved by removal** — the user decides this content doesn't belong. Capture what's being cut and why.

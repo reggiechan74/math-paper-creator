@@ -1,15 +1,18 @@
 ---
-description: "Onboard an existing math paper — generate validation blocks section-by-section with interactive approval"
+name: onboard
+description: Onboard an existing Markdown math paper into a validated .model.md — generate fixture and validation blocks section by section with interactive approval. The original file is never modified.
 argument-hint: "<path-to-paper.md>"
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob"]
-arguments:
-  - name: "file"
-    description: "Path to the plain .md file containing the math paper"
+allowed-tools: Bash Read Write Edit Glob
+disable-model-invocation: true
 ---
 
 # Onboard a Math Paper
 
 Convert an existing markdown math paper into a fully validated `.model.md` document with working `python:validate` blocks. This is an interactive, section-by-section process — you will approve each validation block before moving on.
+
+**Arguments:** `$ARGUMENTS`
+
+**Paths:** Resolve every file path to an absolute path before passing it to the CLI (relative paths are relative to the user's working directory). Run the CLI exactly as shown below via `"${CLAUDE_PLUGIN_ROOT}/scripts/mpc"` — never `cd` into the plugin directory.
 
 ## Step 1: Locate the file
 
@@ -89,95 +92,21 @@ For each section that contains `$$...$$` math blocks, in document order:
    a. Insert the approved fixture + validate blocks into the `.model.md` file, placed immediately after the last `$$...$$` math block in that section.
    b. Run the meta-compiler check on the partial document:
       ```bash
-      cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<output_path>"
+      CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" check "<absolute_output_path>"
       ```
    c. **If the check fails:** Show the errors to the user, fix them in the `.model.md` file, and re-run the check. Repeat until the check passes (errors only — orphan warnings are expected in authoring mode). Do NOT proceed to the next section until the current section's blocks pass validation.
    d. **If the check passes:** Update the running symbol name registry and move to the next section.
 
 ### API reference and known constraints
 
-```python
-from meta_compiler import Set, Parameter, Variable, Expression, Constraint, Objective, S, registry
-
-# Sets — fixture data must be a list
-Set("W", description="Set of workers")
-
-# Parameters (indexed, with units) — fixture data must be a dict
-Parameter("cap", index=["W"], domain="nonneg_real", units="hours",
-          description="Capacity per worker")
-
-# Variables (indexed, with bounds) — fixture data must be a dict
-Variable("x", index=["W", "T"], domain="continuous", bounds=(0, None),
-         units="hours", description="Hours assigned")
-
-# Expressions — define derived quantities
-# NOTE: Expression results are NOT available through proxy indexing.
-# You cannot do `load[i]` in a Constraint lambda — the proxy only
-# looks up fixture data, and Expressions have no fixture data.
-# Instead, inline the computation in Constraints/Objectives.
-Expression("load",
-           definition=lambda i: sum(x[i, t] for t in S("T")),
-           index=["W"], units="hours",
-           description="Total load per worker")
-
-# Constraints — lambda must take exactly ONE positional argument
-# The `over` parameter accepts a SINGLE set name (not a list of sets).
-# For multi-index iteration, use `over` for the outer set and iterate
-# inner sets inside the lambda body.
-Constraint("cap_limit",
-           expr=lambda i: sum(x[i, t] for t in S("T")) <= cap[i],
-           over="W",
-           description="Load cannot exceed capacity")
-
-# WRONG — multi-set `over` does not work:
-#   over=["W", "T"]  ← only uses first element, lambda gets 1 arg
-#
-# WRONG — Expression proxy indexing does not work:
-#   expr=lambda i: load[i] <= cap[i]  ← raises "No fixture data for 'load'"
-#
-# RIGHT — inline the expression computation:
-#   expr=lambda i: sum(x[i, t] for t in S("T")) <= cap[i]
-
-# For multi-set constraints, iterate inner sets inside the lambda:
-Constraint("demand",
-           expr=lambda j: all(
-               sum(x[i, j, p] for i in S("W")) >= d[j, p]
-               for p in S("P")
-           ),
-           over="J",
-           description="Demand coverage for every project type and team")
-
-# Scalar parameters in Objective/Constraint lambdas:
-# SymbolProxy does not support arithmetic operators (* + - /).
-# For scalar (non-indexed) parameters, extract the raw value:
-#   alpha_val = registry.data_store["alpha"]
-# Then use alpha_val (a plain float) in the lambda.
-
-# Objectives — lambda takes ZERO arguments
-Objective("total_output",
-          expr=lambda: sum(
-              sum(x[i, t] for t in S("T"))
-              for i in S("W")
-          ),
-          sense="maximize",
-          description="Maximize total productive hours")
-
-# Always end with
-registry.run_tests()
-```
-
-### Symbol naming rules
-
-All symbol types (Sets, Parameters, Variables, Expressions, Constraints, Objectives) share a **single global namespace**. A Constraint named `"capacity"` collides with a Parameter named `"capacity"`. Use distinct, descriptive names:
-- Constraints: `"cap_limit"`, `"demand_coverage"`, `"effort_capacity"`
-- Parameters: `"cap"`, `"capacity_hours"`, `"d_min"`
+Before writing any `python:fixture` or `python:validate` block, read `${CLAUDE_PLUGIN_ROOT}/references/meta-compiler-api.md`. It documents every symbol type (`Set`, `Parameter`, `Variable`, `Expression`, `Constraint`, `Objective`, `Axiom`, `Property`), the known pitfalls (single-set `over`, no proxy indexing of Expressions, lambda arity), and the single global namespace rule for symbol names.
 
 ## Step 7: Final validation
 
 After all sections are processed, run one final full-document check:
 
 ```bash
-cd "${CLAUDE_PLUGIN_ROOT}" && PYTHONPATH=src python3 -m meta_compiler.cli check "<output_path>"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" check "<absolute_output_path>"
 ```
 
 This should pass cleanly (since each section was validated incrementally). If any new errors appear from cross-section interactions, fix them.

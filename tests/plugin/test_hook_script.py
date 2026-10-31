@@ -1,7 +1,9 @@
 """Integration tests for the validate-model-md.sh hook script."""
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 import tempfile
 
@@ -143,6 +145,33 @@ class TestHookEdgeCases:
         doc.write_text("# Title\n\nSome prose about math.\n")
         result = run_hook("Write", str(doc))
         assert result.returncode == 0
+
+    def test_missing_dependency_reports_instead_of_crashing(self, tmp_path):
+        """If numpy can't be imported, the hook must exit 0 with a context note."""
+        data = tmp_path / "data"
+        (data / "venv/bin").mkdir(parents=True)
+        fake_python = data / "venv/bin/python"
+        # -S drops site-packages, so numpy is unavailable to this interpreter
+        fake_python.write_text(f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n')
+        fake_python.chmod(0o755)
+        (data / "venv/.ready").write_text("x\n")
+
+        doc = tmp_path / "dep.model.md"
+        doc.write_text("# Title\n")
+        hook_input = json.dumps({
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(doc)},
+        })
+        result = subprocess.run(
+            ["bash", str(SCRIPT)],
+            input=hook_input, capture_output=True, text=True,
+            env=dict(os.environ, CLAUDE_PLUGIN_DATA=str(data)), timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        output = json.loads(result.stdout)
+        assert "decision" not in output
+        context = output["hookSpecificOutput"]["additionalContext"]
+        assert "skipped" in context and "setup.log" in context
 
     def test_valid_json_output_on_block(self, tmp_path):
         """Block response must be valid JSON."""

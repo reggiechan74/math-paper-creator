@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# mpc — run the meta-compiler CLI with the plugin's Python environment.
+#
+# Usage:
+#   mpc <subcommand> [args...]     # e.g. mpc check /abs/path/paper.model.md
+#   mpc --python <script> [args]   # run a script (e.g. a compiled runner.py)
+#
+# Interpreter selection:
+#   Uses the managed venv at $CLAUDE_PLUGIN_DATA/venv once setup_env.py has
+#   finished installing it (marked by venv/.ready). Otherwise falls back to
+#   python3 on PATH, so the plugin still works when setup hasn't run yet.
+#
+# CLAUDE_PLUGIN_DATA is not exported to the Bash tool, so skills pass it in
+# explicitly: CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ".../scripts/mpc" ...
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+PY="python3"
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/venv/.ready" ]; then
+  for candidate in "${CLAUDE_PLUGIN_DATA}/venv/bin/python" "${CLAUDE_PLUGIN_DATA}/venv/Scripts/python.exe"; do
+    if [ -x "$candidate" ]; then
+      PY="$candidate"
+      break
+    fi
+  done
+fi
+
+export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+
+if [ "${1:-}" = "--python" ]; then
+  shift
+  exec "$PY" "$@"
+fi
+
+exec "$PY" -m meta_compiler.cli "$@"

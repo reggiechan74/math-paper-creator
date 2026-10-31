@@ -1,8 +1,10 @@
 ---
-description: "Convert a mathematically dense document into a plain-English companion version with explanation callouts"
-argument-hint: "<path to document> [output_path]"
-allowed-tools: AskUserQuestion, Read, Write, Edit, Agent, Bash, Glob, Grep
+name: plain-english
+description: Convert a mathematically dense document into a plain-English companion version with explanation callouts after complex sections, processed in chunks so large papers fit.
+argument-hint: "<path-to-document> [output-path]"
+allowed-tools: AskUserQuestion Read Write Edit Agent Bash Glob Grep
 model: sonnet
+disable-model-invocation: true
 ---
 
 # Plain-English Companion Generator
@@ -13,9 +15,11 @@ model: sonnet
 
 ## Instructions
 
-When this command is invoked:
+When this skill is invoked:
 
 ### Step 1: Parse Arguments
+
+Arguments: `$ARGUMENTS`
 
 - First argument (required): path to the source document
 - Second argument (optional): output path. Default: `<source_name>_plain_english.md` in the same directory
@@ -176,7 +180,7 @@ Process each section independently. For each section, launch a general-purpose A
 1. **Only that section's content** (not the full document)
 2. **A brief document summary** (1-2 sentences describing the paper's topic, so the agent has context for writing relevant callouts)
 3. **The user's configuration** from Step 4
-4. **The callout format templates** based on the user's choices
+4. **The callout format template** from [callout-templates.md](callout-templates.md) matching the user's choices
 5. **Writing guidelines per callout type:**
    - 💡 What This Means / Intuition: Use everyday analogies. "Think of it like..." Keep at the target reading level. Explain what the math is actually saying in human terms. 3-6 sentences.
    - 🔧 How To Apply This / Operational: Concrete guidance. "When scoring..." or "In practice, this means..." Give specific examples. 3-6 sentences.
@@ -228,57 +232,7 @@ Complete.
 
 ## Callout Templates
 
-### Obsidian Format (default)
-
-**Tiered (audience = all):**
-```markdown
-> [!tip] 💡 What This Means
-> <intuition-level explanation>
-
-> [!example] 🔧 How To Apply This
-> <operational guidance>
-
-> [!important] ⚡ Why This Matters
-> <executive-level implications>
-```
-
-**Single:**
-```markdown
-> [!note] 📖 Plain English
-> <combined explanation at target reading level>
-```
-
-**Single with lead-ins:**
-```markdown
-> [!note] 📖 Plain English
-> **In plain terms:** <intuition>
-> **In practice:** <operational>
-> **The takeaway:** <executive>
-```
-
-### Plain Blockquote Format
-
-```markdown
-> **💡 What This Means**
-> <explanation>
-```
-
-### GitHub-Compatible Format
-
-```markdown
-> **💡 What This Means**
->
-> <explanation>
-```
-
-### HTML Collapsible Format
-
-```html
-<details>
-<summary>💡 What This Means</summary>
-<p>explanation</p>
-</details>
-```
+The callout syntax for every output format (Obsidian, plain blockquote, GitHub, HTML collapsible) is in [callout-templates.md](callout-templates.md). Read it after the interview and pass the template matching the user's choice to each section agent.
 
 ## Defaults Summary
 
@@ -294,6 +248,6 @@ Complete.
 ## Example Usage
 
 ```
-/plain-english /path/to/math-heavy-paper.md
-/plain-english /path/to/paper.md /path/to/output.md
+/math-paper-creator:plain-english /path/to/math-heavy-paper.md
+/math-paper-creator:plain-english /path/to/paper.md /path/to/output.md
 ```

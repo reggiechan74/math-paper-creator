@@ -5,6 +5,28 @@ All notable changes to math-paper-creator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-31
+
+### Changed
+- Migrated all nine slash commands from legacy `commands/` to `skills/<name>/SKILL.md`. Invocation names are unchanged (`/math-paper-creator:<name>`)
+- Interactive skills (`author`, `onboard`, `review`, `compile`, `plain-english`) set `disable-model-invocation: true` so they run only when invoked explicitly
+- Skills take arguments via `$ARGUMENTS` instead of the non-standard `arguments:` object list
+- Meta-compiler API reference moved to a shared `references/meta-compiler-api.md` (the onboard copy had a stale note on scalar parameters); plain-english callout templates moved to a supporting file
+- PostToolUse validation hook uses exec form and `if` filters, so it only starts for `.model.md` writes/edits; timeout raised from 30s to 120s
+- Version is declared only in `plugin.json` (removed from the marketplace entry); `pyproject.toml` now tracks the plugin version
+- Removed the redundant `commands` key from `plugin.json`
+
+### Fixed
+- Skills no longer `cd` into the plugin directory before running the CLI. Relative document paths previously resolved against the plugin install directory, and `compile`'s default `./output` was written there
+- Validation hook reports a missing Python dependency as context instead of failing with a traceback
+
+### Added
+- `scripts/mpc` launcher for the meta-compiler CLI (works from any directory, uses the managed environment when ready)
+- SessionStart hook (`scripts/setup_env.py`) that provisions a venv with numpy and z3-solver in `${CLAUDE_PLUGIN_DATA}` in the background
+- `requirements.txt`, `LICENSE` (MIT), plugin icon, `displayName`
+- GitHub Actions CI: pytest on Python 3.10/3.13 and `claude plugin validate --strict`
+- Plugin packaging tests (`tests/plugin/test_plugin_layout.py`)
+
 ## [0.7.0] - 2026-03-21
 
 ### Fixed
