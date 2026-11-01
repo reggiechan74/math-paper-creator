@@ -5,6 +5,27 @@ All notable changes to math-paper-creator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-11-01
+
+### Fixed
+- **Fixture data now follows document order.** Previously all fixture blocks ran before any validation, so a later scenario section that reassigned a parameter silently changed the data every earlier section was checked against. Each validation block (and results block) now sees the data as it stands at its position; names defined only later fall back to their first definition
+- **Axioms are checked against the fixture data.** Z3 constants are linked to Parameters by name (`Real("H")` ↔ `Parameter("H")`), so a fixture that violates a declared axiom is an error. Previously the axioms and the data could contradict each other silently
+- **`runner.py` works and checks constraints.** The generated runner crashed on start-up (circular import), and even if fixed it never evaluated constraints, axioms or objectives numerically. It now embeds the document's blocks and runs them through the same engine as `check`
+- `Axiom`/`Property` documents without z3 installed now warn that verification was skipped
+
+### Added
+- Scenario re-checks: constraints and axioms registered before a fixture that redefines data are re-evaluated under the new values; violations are reported as warnings
+- `latex=` on Set/Parameter/Variable/Expression, and LaTeX ↔ symbol linkage warnings (opt-in, active once any symbol declares `latex=`)
+- `mpc symbols [--json]`: the document's symbol table, used by the skills instead of tracking names in context
+- **Lean 4 verification tier** (opt-in `enable_lean` option, ~11 GB):
+  - `Property(..., lean_proof=...)` with a Lean statement generated from the Z3 expression and the given axioms
+  - `Theorem(name, claim=..., lean=...)` for claims Z3 cannot express
+  - `mpc lean` (print generated Lean) and `mpc prove` (check with Lean; results cached in `<paper>.proofs.json`, keyed by a hash of the exact source)
+  - Proofs count only if they depend on Lean's standard axioms alone (`sorry` and smuggled `axiom`s are rejected)
+  - `/math-paper-creator:prove` skill; report **Verification Levels** section; `Proofs.lean` compile artifact
+  - Pinned Lake project template (`lean/`) installed in the background by the SessionStart hook
+- Fixed a circular import between `checks` and the compiler package
+
 ## [0.8.0] - 2026-10-31
 
 ### Changed

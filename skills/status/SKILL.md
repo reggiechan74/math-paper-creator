@@ -27,3 +27,10 @@ Display the current symbol table, dependency status, and coverage metric for a `
    - Any phantom references (referenced but never defined)
    - Coverage ratio (math blocks with corresponding validation blocks)
    - Unvalidated sections (if any)
+   - LaTeX linkage gaps: identifiers in the math with no registered symbol, and symbols whose `latex=` never appears
+
+   For a structured view of the symbols themselves, run:
+
+   ```bash
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" symbols "<absolute_file_path>"
+   ```

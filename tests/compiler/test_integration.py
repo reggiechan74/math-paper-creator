@@ -115,7 +115,7 @@ def test_full_pipeline_compile():
     # Runner artifact — standalone script with inlined fixture + validate code
     assert "runner" in artifacts
     runner = artifacts["runner"]
-    assert "registry.run_tests" in runner
+    assert "execute_blocks" in runner  # runs through the shared engine
     assert "Parameter(" in runner  # contains inlined validation code
 
     # Report artifact
@@ -178,7 +178,7 @@ def test_compile_produces_paper_report_runner():
     assert "runner" in result
     assert "python:fixture" not in result["paper"]
     assert "python:validate" not in result["paper"]
-    assert "registry.run_tests" in result["runner"]
+    assert "execute_blocks" in result["runner"]
 
 
 def test_compile_no_codebase_key():

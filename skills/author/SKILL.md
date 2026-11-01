@@ -14,6 +14,14 @@ Create a new `.model.md` document through interactive ideation. You describe con
 
 **Paths:** Resolve every file path to an absolute path before passing it to the CLI (relative paths are relative to the user's working directory). Run the CLI exactly as shown below via `"${CLAUDE_PLUGIN_ROOT}/scripts/mpc"` — never `cd` into the plugin directory.
 
+**Symbol table:** to see which symbols exist (names, kinds, indices, units, LaTeX, defining line), run:
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" symbols --json "<absolute_file_path>"
+```
+
+Use it whenever you need symbol names; never keep your own running list.
+
 ## Step 1: Initialize
 
 **New paper** (no path given, or file doesn't exist):
@@ -29,7 +37,7 @@ Create a new `.model.md` document through interactive ideation. You describe con
    version: 0.1
    ---
    ```
-3. Initialize an empty running symbol name registry (a list you maintain across sections).
+3. The document's symbol table is the source of truth for symbol names. Never track it from memory — query it whenever you need it (see **Symbol table** below).
 4. Proceed to Step 2.
 
 **Resume** (path to an existing `.model.md` file):
@@ -39,7 +47,7 @@ Create a new `.model.md` document through interactive ideation. You describe con
    ```bash
    CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" check "<absolute_file_path>"
    ```
-3. Rebuild the running symbol name registry from the existing validate blocks (read all symbol names already registered).
+3. Load the symbol table (see **Symbol table** below).
 4. Show the user a summary: number of sections, symbol count by type, any warnings.
 5. Ask where they want to continue. Proceed to the authoring loop (Step 3).
 
@@ -133,15 +141,19 @@ If `epistemic_type` is `structural` or `decision_framework`, prompt:
 If accepted, the first authoring section (before Parameters) is "Axioms and Assumptions." For each axiom:
 - Prose statement explaining the assumption
 - Display math: `$$H > 0$$`
-- `python:validate` block registering: `Axiom("A1", statement="H > 0", z3_expr=lambda: H > 0, description="...")`
+- `python:validate` block registering: `Axiom("A1", statement="H > 0", z3_expr=lambda: zH > 0, description="...")`
 - The `z3_expr` is optional — include it if Z3 verification is desired
 
-Z3 variables must be declared in the `python:validate` block (NOT in fixture blocks — fixture data gets wrapped in SymbolProxy which breaks Z3 operations):
+Declare Z3 constants in the `python:validate` block (not in fixture blocks), **named exactly like the Parameter they stand for** but bound to a different Python name, so the Parameter keeps its fixture value:
 ```python
 from z3 import Real
-H = Real('H')
-Axiom("A1", statement="H > 0", z3_expr=lambda: H > 0, description="...")
+zH = Real("H")   # Z3 name "H" links to Parameter "H"
+Axiom("A1", statement="H > 0", z3_expr=lambda: zH > 0, description="...")
 ```
+
+Because the Z3 name matches the Parameter, the checker also tests every axiom against the fixture data: a fixture with `H = -5` fails `A1`. Never write `H = Real('H')` — that replaces the Parameter's value in later constraints.
+
+**Lean proofs (optional).** Once a Property passes the Z3 check, it can also be machine-checked in Lean with `/math-paper-creator:prove`. This works if the user enabled the plugin's **Enable Lean proofs** option. For claims Z3 cannot express, such as derivatives (comparative statics), sums over arbitrary sets, or statements for all n, register a `Theorem` with a Lean statement instead (see the API reference). Before registering a Theorem, show the user its Lean statement with a plain-English reading and get explicit approval that it says what the paper claims. Use `sorry` as the proof until `/math-paper-creator:prove` fills it in.
 
 **Review findings path:** If the paper was loaded from review findings (Step 1, item 0), the scope declaration prompt still fires — review findings do not set `epistemic_type`.
 
@@ -161,7 +173,7 @@ If the user asks what's needed next, combine three sources into a single suggest
 
 1. **Template outline:** Check the outline (from frontmatter) for the next unwritten section. Suggest it by name and describe what goes there.
 2. **Structural checklist:** Read `${CLAUDE_PLUGIN_ROOT}/templates/_checklist.md` and scan the Required items against the current document. Surface any structural gaps (e.g., "no computable output yet — consider adding an Expression, Constraint, or Objective").
-3. **Symbol registry:** Review the current symbols and suggest what a complete model typically requires (e.g., "You have sets and parameters but no constraints or objective yet"). This is the existing behavior.
+3. **Symbol table:** Load the symbol table and suggest what a complete model typically requires (e.g., "You have sets and parameters but no constraints or objective yet").
 
 Present all three as a unified recommendation, not three separate lists.
 
@@ -204,10 +216,18 @@ When formalizing a scenario or sensitivity analysis section whose fixture block 
 
 If decomposition is accepted, structure the section to show each parameter's individual effect before the combined result. This only applies to scenario/sensitivity sections, not initial parameter definitions.
 
+#### Link the math to the symbols
+
+Give every Set, Parameter, Variable and Expression a `latex=` argument holding the exact LaTeX used for it in the section's `$$...$$` blocks: the base letter for indexed symbols (`latex="x"` for $x_{ij}$), the full form for decorated scalars (`latex=r"c_{\max}"`, `latex=r"\bar{w}"`). The checker then warns when the math uses an identifier no symbol declares, or a declared symbol never appears in the math. Treat those warnings as defects in the section: fix the math or the registrations before presenting.
+
+#### Scenario sections
+
+Fixture data follows document order. A scenario section that reassigns earlier parameters in its own `python:fixture` block does **not** change the data earlier sections were checked against. The checker re-runs earlier constraints and axioms under the scenario's values and reports violations as warnings ("Under the fixture at line N (H: 8.0 → 12.0): ..."). Report those warnings to the user and say in the prose whether the scenario is meant to stay within the base model's assumptions.
+
 ### 3.3 Check names
 
 Before presenting the section to the user, verify:
-- No proposed symbol name collides with any name in the running symbol name registry
+- No proposed symbol name collides with any name in the symbol table (load it fresh — don't rely on memory)
 - All index sets referenced in `Parameter`, `Variable`, `Expression` are already registered (or being registered in this block)
 - Constraint names are distinct from all other symbol names (they share the global namespace)
 
@@ -247,13 +267,13 @@ After approval:
    - If the user describes issues: revise the section in `.model.md`, re-run the meta-compiler check (item 2 above), then re-run reconciliation.
    - If the user confirms: proceed to the next item.
 
-5. **If the check passes:** Update the running symbol name registry with all newly registered names. Tell the user the section is validated and ask for the next concept.
+5. **If the check passes:** Tell the user the section is validated, mention any new warnings (LaTeX linkage, scenario re-checks), and ask for the next concept.
 
 ### 3.6 Between sections
 
 At any point between sections, the user may:
 
-- **View the symbol table:** Run `status` or show the running registry.
+- **View the symbol table:** Run `status`, or load the symbol table and summarize it.
 - **Revise a previous section:** Edit the section in place (modify prose, math, or validation blocks), then re-run the full-document check to ensure consistency.
 - **Ask for suggestions:** Claude reviews the current model and suggests what's missing or what could be strengthened.
 - **Signal completion:** Say "done", "that's all", or similar. Proceed to Step 4.

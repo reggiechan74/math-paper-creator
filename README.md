@@ -1,7 +1,7 @@
 # math-paper-creator
 
 <!-- badges-start -->
-![Version](https://img.shields.io/badge/version-0.8.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-blueviolet)
 <!-- badges-end -->
@@ -72,9 +72,10 @@ When the paper is complete, `/math-paper-creator:compile` produces three artifac
 |----------|------------|
 | **`paper.md`** | Clean publishable paper — all validation blocks stripped, only prose and math remain |
 | **`runner.py`** | Standalone Python script with all fixture data and validation logic inlined — runs without the paper |
-| **`report.txt`** | Validation report: symbol table, dependency graph, coverage metrics, test results |
+| **`report.txt`** | Validation report: symbol table, dependency graph, coverage metrics, verification levels, test results |
+| **`Proofs.lean`** | Lean 4 statements and proofs of the paper's Properties and Theorems (when it has any) |
 
-The `runner.py` is immediately repeatable. You can run it in CI, share it with collaborators, or use it as the foundation for an implementation — the symbol registrations document every set, parameter, variable, expression, constraint, and objective in the model.
+The `runner.py` gives exactly the same verdict as `check`: it embeds every fixture, results and validate block and runs them through the same engine. It is immediately repeatable. You can run it in CI, share it with collaborators, or use it as the foundation for an implementation — the symbol registrations document every set, parameter, variable, expression, constraint, and objective in the model.
 
 ## Installation
 
@@ -116,6 +117,7 @@ Each workflow is a plugin skill, invoked as a slash command. The interactive wor
 | `/math-paper-creator:paper <file>` | Generate clean paper artifact (strips validation blocks) |
 | `/math-paper-creator:compile <file>` | Produce all artifacts: clean paper, standalone runner, validation report |
 | `/math-paper-creator:plain-english <file> [output]` | Generate a plain-English companion with explanation callouts for math-heavy sections |
+| `/math-paper-creator:prove <file> [claim ...]` | Machine-check Properties and Theorems in Lean 4 + Mathlib (opt-in, see [Lean proofs](#lean-proofs)) |
 
 ## Templates
 
@@ -141,6 +143,39 @@ A universal structural checklist applies to all paper types, covering required a
 When installed, the plugin automatically validates `.model.md` files every time Claude writes or edits one. Validation errors are hard blocks — Claude must fix them before continuing.
 
 The hook runs in **authoring mode**: symbol conflicts, undefined references, index mismatches, and dimensional errors are hard blocks. Orphan symbols produce warnings only (the symbol may be used in a later section).
+
+## Levels of Evidence
+
+Every claim in a paper carries one of four levels of evidence, shown in the report's **Verification Levels** section:
+
+| Level | Meaning | Produced by |
+|-------|---------|-------------|
+| **assumed** | An `Axiom`. Stated without proof, but checked against the fixture data: a fixture with `H = -5` fails the axiom `H > 0` | `check` |
+| **stated** | A claim that hasn't been verified | — |
+| **Z3-checked** | A `Property` that follows from its axioms for *all* real values, not just the fixtures | `check` (Z3) |
+| **Lean-proved** | A machine-checked proof in Lean 4 + Mathlib that depends only on Lean's standard axioms | `prove` |
+
+Constraints and objectives are **tested**: they hold on the fixture data.
+
+### Scenarios
+
+Fixture data follows document order. Each section is checked against the data as it stands at that point. A scenario section that reassigns parameters doesn't change what earlier sections were checked against. Instead, earlier constraints and axioms are re-checked under the scenario's values, and violations are reported as warnings ("Under the fixture at line 42 (H: 8.0 → 12.0): ...").
+
+### Linking the math to the code
+
+Give symbols a `latex=` argument with the exact LaTeX the paper uses (`Parameter("beta", ..., latex=r"\beta")`), and the checker cross-references every `$$...$$` block. It warns when the math uses an identifier that no symbol declares, or when a declared symbol never appears in the math. This catches the paper and the validation code drifting apart.
+
+## Lean Proofs
+
+Lean support is **opt-in** because it needs Lean 4 and Mathlib, about 11 GB downloaded once. Enable **Enable Lean proofs** in `/plugin` → math-paper-creator → configure, then start a new session. The plugin installs Lean in the background into its data directory; progress is logged to `setup.log` there.
+
+- **`Property(..., lean_proof=...)`**: the Lean *statement* is generated from the property's Z3 expression, with its `given` axioms as hypotheses. Lean therefore proves exactly what Z3 checked and the data was tested against. Only the proof is written by hand (or by Claude).
+- **`Theorem(name, claim=..., lean=...)`**: a hand-written Lean statement, for claims Z3 can't express (derivatives, sums over arbitrary sets, statements for all n). Because the statement is hand-written, the `prove` workflow asks you to approve it as a faithful rendering of the paper's claim before proving it, and the report labels it as hand-written.
+- `/math-paper-creator:prove` writes proofs, iterates on Lean's errors, and records results in `<paper>.proofs.json`. Keep that file next to the paper. Each result is tied to the exact claim and proof text, so editing either marks it stale.
+- A proof only counts if it depends on nothing beyond Lean's three standard axioms. `sorry`, `native_decide` and smuggled `axiom` declarations are rejected.
+- `compile` also writes `Proofs.lean` with every claim's Lean statement and proof.
+
+To use your own Lean install instead, set `MPC_LEAN_PROJECT` to a Lake project that requires Mathlib.
 
 ## The API
 
@@ -179,7 +214,10 @@ Constraints iterate over a single set via `over`. For multi-index constraints, i
 
 ## Requirements
 
-- **Python 3.10+** available as `python3` on your `PATH`, with the standard `venv` module (on Debian/Ubuntu: `apt install python3-venv`).
+[`requirements.txt`](requirements.txt) lists everything. In short:
+
+- **Python 3.10+** available as `python3` on your `PATH`, plus either [uv](https://docs.astral.sh/uv/) or the standard `venv` module (on Debian/Ubuntu: `apt install python3-venv`).
+- **Optional, for Lean proofs:** turn on **Enable Lean proofs** (see [Lean Proofs](#lean-proofs)). Installing [elan](https://lean-lang.org/install/) the standard way (`curl https://elan.lean-lang.org/elan-init.sh -sSf | sh`) is recommended, and the plugin reuses it. Allow about 11 GB of disk.
 
 That's all you need to install yourself. On the first session after install, the plugin creates a private virtual environment in its data directory (`~/.claude/plugins/data/<plugin-id>/venv`) and installs its dependencies there in the background:
 

@@ -59,7 +59,11 @@ This file will be incrementally updated as each section is approved and validate
 
 ## Step 6: Section-by-section conversion
 
-**Maintain a running symbol name registry** — a list of every symbol name registered so far (across all previous sections). Before proposing any new block, check that proposed names do not collide with existing ones.
+**Use the document's symbol table, not memory.** Before proposing any new block, load the current symbol table and check that proposed names do not collide with existing ones:
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" symbols --json "<absolute_output_path>"
+```
 
 For each section that contains `$$...$$` math blocks, in document order:
 
@@ -70,10 +74,11 @@ For each section that contains `$$...$$` math blocks, in document order:
    a. **`python:fixture` block** — define a small, realistic test scenario with 3–5 concrete set members and realistic parameter values. This block populates the registry with test data so the subsequent validation block can exercise real indexing and arithmetic. Example: if the section defines a set of workers, create `["alice", "bob", "carol"]` as the fixture members.
 
    b. **`python:validate` block** — register the symbols and relationships defined in that section using the meta-compiler API:
-   - `Set(name, description=...)` for sets
-   - `Parameter(name, index=[...], domain=..., units=..., description=...)` for parameters
-   - `Variable(name, index=[...], domain=..., bounds=(...), units=..., description=...)` for variables
-   - `Expression(name, definition=lambda ...: ..., index=[...], units=..., description=...)` for derived expressions
+   - `Set(name, description=..., latex=...)` for sets
+   - `Parameter(name, index=[...], domain=..., units=..., description=..., latex=...)` for parameters
+   - `Variable(name, index=[...], domain=..., bounds=(...), units=..., description=..., latex=...)` for variables
+   - `Expression(name, definition=lambda ...: ..., index=[...], units=..., description=..., latex=...)` for derived expressions
+   - `latex=` is the exact LaTeX the paper uses for the symbol (base letter for indexed symbols). It lets the checker confirm each `$$...$$` block's identifiers are registered — the point of onboarding.
    - `Constraint(name, expr=lambda ...: ..., over=..., type=..., description=...)` for constraints
    - `Objective(name, expr=lambda ...: ..., sense=..., description=...)` for objectives
    - End each block with `registry.run_tests()` to validate incrementally.
@@ -95,7 +100,7 @@ For each section that contains `$$...$$` math blocks, in document order:
       CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" check "<absolute_output_path>"
       ```
    c. **If the check fails:** Show the errors to the user, fix them in the `.model.md` file, and re-run the check. Repeat until the check passes (errors only — orphan warnings are expected in authoring mode). Do NOT proceed to the next section until the current section's blocks pass validation.
-   d. **If the check passes:** Update the running symbol name registry and move to the next section.
+   d. **If the check passes:** Report any LaTeX linkage warnings for the section (they mean the paper's math and the validation code disagree), resolve them with the user, then move to the next section.
 
 ### API reference and known constraints
 

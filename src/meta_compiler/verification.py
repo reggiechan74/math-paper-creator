@@ -114,3 +114,101 @@ def check_property(
             status="error", error=str(e),
             duration_s=time.monotonic() - start,
         )
+
+
+def _to_z3_value(z3, const, value):
+    """Convert a fixture value to a Z3 value of the constant's sort, or None."""
+    from decimal import Decimal, InvalidOperation
+    from fractions import Fraction
+
+    sort = const.sort()
+    if isinstance(value, bool) or type(value).__name__ == "bool_":
+        return z3.BoolVal(bool(value)) if sort == z3.BoolSort() else None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if num != num or num in (float("inf"), float("-inf")):
+        return None
+    if sort == z3.IntSort():
+        return z3.IntVal(int(num)) if num.is_integer() else None
+    if sort == z3.RealSort():
+        # Exact decimal: 0.1 becomes 1/10, matching how Z3 reads Python literals.
+        try:
+            frac = Fraction(Decimal(repr(num)))
+        except (InvalidOperation, ValueError):
+            frac = Fraction(num)
+        return z3.RealVal(f"{frac.numerator}/{frac.denominator}")
+    return None
+
+
+def check_axiom_against_data(
+    axiom_expr: object,
+    values: dict,
+) -> VerificationResult:
+    """Check that the fixture data satisfies an axiom.
+
+    Z3 constants are linked to fixture values by name: ``Real('H')`` is bound
+    to ``values['H']``. Constants with no value stay free, so the check asks
+    whether *some* assignment of them satisfies the axiom given the data.
+
+    Statuses:
+      "holds"     — the data satisfies the axiom
+      "violated"  — no assignment of the remaining free constants satisfies it
+      "unbound"   — no constant in the axiom has a fixture value
+      "error"/"skipped" — Z3 failed or is not installed
+
+    ``counterexample`` carries the bound values on "violated".
+    """
+    try:
+        import z3
+        from z3.z3util import get_vars
+    except ImportError:
+        return VerificationResult(status="skipped", error="z3-solver not installed")
+
+    start = time.monotonic()
+    try:
+        expr = axiom_expr()
+        subs = []
+        bound: dict[str, str] = {}
+        for const in get_vars(expr):
+            name = const.decl().name()
+            if name not in values:
+                continue
+            z3_value = _to_z3_value(z3, const, values[name])
+            if z3_value is None:
+                continue
+            subs.append((const, z3_value))
+            bound[name] = repr(values[name])
+
+        if not subs:
+            return VerificationResult(status="unbound", duration_s=time.monotonic() - start)
+
+        reduced = z3.simplify(z3.substitute(expr, *subs))
+        if z3.is_true(reduced):
+            status = "holds"
+        elif z3.is_false(reduced):
+            status = "violated"
+        else:
+            solver = z3.Solver()
+            solver.add(reduced)
+            outcome = solver.check()
+            if outcome == z3.sat:
+                status = "holds"
+            elif outcome == z3.unsat:
+                status = "violated"
+            else:
+                return VerificationResult(
+                    status="error", error="Z3 returned unknown",
+                    duration_s=time.monotonic() - start,
+                )
+        return VerificationResult(
+            status=status,
+            counterexample=bound if status == "violated" else None,
+            duration_s=time.monotonic() - start,
+        )
+    except Exception as e:
+        return VerificationResult(
+            status="error", error=str(e),
+            duration_s=time.monotonic() - start,
+        )

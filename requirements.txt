@@ -1,5 +1,33 @@
-# Runtime dependencies installed into the plugin's managed venv
-# (${CLAUDE_PLUGIN_DATA}/venv) by scripts/setup_env.py on session start.
+# math-paper-creator — requirements
+#
+# ── What you install yourself ────────────────────────────────────────────────
+#
+#   1. Python 3.10 or newer, available as `python3` on your PATH, plus ONE of:
+#        - uv (https://docs.astral.sh/uv/)                         recommended
+#        - the venv module with pip (Debian/Ubuntu: apt install python3-venv)
+#
+#   2. OPTIONAL — only for Lean proofs (/math-paper-creator:prove):
+#        - Turn on the plugin's "Enable Lean proofs" option:
+#            /plugin → math-paper-creator → configure
+#          or: echo '{"enable_lean": "true"}' | claude plugin configure math-paper-creator@math-paper-creator --values-stdin
+#        - Recommended: install Lean's version manager, elan, the standard way
+#          (the plugin reuses it; otherwise it installs a private copy):
+#            curl https://elan.lean-lang.org/elan-init.sh -sSf | sh
+#        - About 11 GB of free disk for the Lean toolchain and Mathlib, which the
+#          plugin downloads once, in the background, on the next session start.
+#        - Or point MPC_LEAN_PROJECT at your own Lake project that requires Mathlib.
+#
+# ── What the plugin installs for you ────────────────────────────────────────
+#
+# The Python packages below. On session start the plugin creates a private
+# virtual environment in its data directory (${CLAUDE_PLUGIN_DATA}/venv) and
+# installs them there — nothing is installed into your system Python. Progress
+# and errors go to ${CLAUDE_PLUGIN_DATA}/setup.log.
+#
+# To use the meta-compiler outside Claude Code instead:
+#     pip install -r requirements.txt
+#
 # Keep in sync with [project] dependencies + the "verification" extra in pyproject.toml.
-numpy>=1.24
-z3-solver>=4.12
+
+numpy>=1.24        # numeric evaluation of fixtures, constraints and objectives
+z3-solver>=4.12    # axiom consistency, property implication, axiom-vs-data checks

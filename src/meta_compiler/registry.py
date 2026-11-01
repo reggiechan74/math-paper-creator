@@ -17,6 +17,7 @@ from meta_compiler.symbols import (
     ParameterSymbol,
     PropertySymbol,
     SetSymbol,
+    TheoremSymbol,
     Symbol,
     VariableSymbol,
 )
@@ -42,6 +43,8 @@ class Registry:
         self.scalar_names: set[str] = set()
         self._exec_namespace: dict | None = None  # set by executor
         self._current_block_source: str | None = None  # set by executor per block
+        self._current_block_line: int | None = None  # set by executor per block
+        self.defined_at: dict[str, int] = {}  # symbol name -> source line of its block
 
     def reset(self) -> None:
         """Clear all symbols — used between tests."""
@@ -52,6 +55,8 @@ class Registry:
         self.scalar_names = set()
         self._exec_namespace = None
         self._current_block_source = None
+        self._current_block_line = None
+        self.defined_at.clear()
 
     def _register(self, name: str, symbol: Symbol) -> None:
         """Register a symbol, raising on conflicts."""
@@ -64,6 +69,8 @@ class Registry:
             )
         self.symbols[name] = symbol
         self._registration_order.append(name)
+        if self._current_block_line is not None:
+            self.defined_at[name] = self._current_block_line
 
     def _require_sets(self, *set_names: str, context: str = "") -> None:
         """Verify that all named sets exist."""
@@ -112,9 +119,10 @@ class Registry:
             return tuple(index)
         raise TypeError(f"index must be str, list, tuple, or None, got {type(index).__name__}")
 
-    def register_set(self, name: str, *, description: str = "") -> SymbolProxy:
+    def register_set(self, name: str, *, description: str = "",
+                     latex: str | None = None) -> SymbolProxy:
         """Register an index set."""
-        symbol = SetSymbol(name=name, description=description)
+        symbol = SetSymbol(name=name, description=description, latex=latex)
         self._register(name, symbol)
         return self._make_proxy(name)
 
@@ -126,6 +134,7 @@ class Registry:
         domain: str = "real",
         units: str = "dimensionless",
         description: str = "",
+        latex: str | None = None,
     ) -> SymbolProxy:
         """Register a parameter with index and unit validation."""
         idx = self._normalize_index(index)
@@ -133,7 +142,7 @@ class Registry:
             self._require_sets(*idx, context=f'Parameter "{name}"')
         symbol = ParameterSymbol(
             name=name, index=idx, domain=domain,
-            units=units, description=description,
+            units=units, description=description, latex=latex,
         )
         self._register(name, symbol)
         return self._make_proxy(name)
@@ -147,6 +156,7 @@ class Registry:
         bounds: tuple[float | None, float | None] = (None, None),
         units: str = "dimensionless",
         description: str = "",
+        latex: str | None = None,
     ) -> SymbolProxy:
         """Register a decision variable with index validation."""
         idx = self._normalize_index(index)
@@ -154,7 +164,7 @@ class Registry:
             self._require_sets(*idx, context=f'Variable "{name}"')
         symbol = VariableSymbol(
             name=name, index=idx, domain=domain, bounds=bounds,
-            units=units, description=description,
+            units=units, description=description, latex=latex,
         )
         self._register(name, symbol)
         return self._make_proxy(name)
@@ -167,6 +177,7 @@ class Registry:
         index=None,
         units: str = "dimensionless",
         description: str = "",
+        latex: str | None = None,
     ) -> SymbolProxy:
         """Register a derived expression by storing its callable directly."""
         idx = self._normalize_index(index)
@@ -176,7 +187,7 @@ class Registry:
             definition._source_text = self._current_block_source
         sym = ExpressionSymbol(
             name=name, index=idx, units=units,
-            description=description, expr=definition,
+            description=description, expr=definition, latex=latex,
         )
         self._register(name, sym)
         return self._make_proxy(name)
@@ -241,6 +252,7 @@ class Registry:
         z3_expr: object,
         given: list[str] | tuple[str, ...],
         description: str = "",
+        lean_proof: str | None = None,
     ) -> None:
         """Register a derived property with axiom dependencies."""
         given_tuple = tuple(given)
@@ -257,8 +269,23 @@ class Registry:
                 )
         sym = PropertySymbol(
             name=name, claim=claim, z3_expr=z3_expr,
-            given=given_tuple, description=description,
+            given=given_tuple, description=description, lean_proof=lean_proof,
         )
+        self._register(name, sym)
+
+    def register_theorem(
+        self,
+        name: str,
+        *,
+        claim: str,
+        lean: str,
+        description: str = "",
+    ) -> None:
+        """Register a claim stated and proved in Lean."""
+        from meta_compiler.lean import validate_theorem_source
+
+        validate_theorem_source(name, lean)
+        sym = TheoremSymbol(name=name, claim=claim, lean=lean, description=description)
         self._register(name, sym)
 
     def s(self, name: str):

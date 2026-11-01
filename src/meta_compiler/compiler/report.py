@@ -14,6 +14,7 @@ from meta_compiler.symbols import (
     ParameterSymbol,
     PropertySymbol,
     SetSymbol,
+    TheoremSymbol,
     VariableSymbol,
 )
 
@@ -27,6 +28,7 @@ class Report:
     test_errors: list[str]
     test_warnings: list[str]
     coverage: dict
+    verification: list[dict] = field(default_factory=list)
 
     def to_text(self) -> str:
         """Render report as human-readable text."""
@@ -76,6 +78,17 @@ class Report:
             lines.append(f"  Properties declared: {len(properties)}")
             lines.append("")
 
+        # Evidence level per claim
+        if self.verification:
+            lines.append("## Verification Levels")
+            lines.append("")
+            lines.append("  assumed < stated < Z3-checked < Lean-proved")
+            lines.append("")
+            for v in self.verification:
+                detail = f"  — {v['detail']}" if v.get("detail") else ""
+                lines.append(f"  {v['kind']:9s} {v['name']:16s} {v['level']:12s} {v['claim']}{detail}")
+            lines.append("")
+
         # Test results
         lines.append("## Test Results")
         lines.append("")
@@ -97,6 +110,7 @@ def generate_report(
     *,
     registry: Registry,
     test_result: "TestResult | None" = None,
+    proofs: dict | None = None,
 ) -> Report:
     """Generate a validation report from registry state and parsed blocks."""
     symbol_table = _build_symbol_table(registry)
@@ -117,7 +131,17 @@ def generate_report(
             "covered_math": cov.covered_math,
             "uncovered_sections": cov.uncovered_sections,
         },
+        verification=_verification(registry, test_result.passed, proofs),
     )
+
+
+def _verification(registry: Registry, passed: bool, proofs: dict | None) -> list[dict]:
+    from meta_compiler.lean import verification_levels
+
+    try:
+        return verification_levels(registry, passed, proofs)
+    except Exception:  # never let the evidence summary break a report
+        return []
 
 
 def _build_symbol_table(registry: Registry) -> list[dict]:
@@ -161,6 +185,9 @@ def _build_symbol_table(registry: Registry) -> list[dict]:
                 entry["type"] = "Property"
                 entry["claim"] = sym.claim
                 entry["given"] = list(sym.given)
+            case TheoremSymbol():
+                entry["type"] = "Theorem"
+                entry["claim"] = sym.claim
         table.append(entry)
     return table
 

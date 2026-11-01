@@ -10,6 +10,7 @@ class SetSymbol:
     """An index set like W (workers), P (projects)."""
     name: str
     description: str
+    latex: str | None = None  # LaTeX form used in the paper's math, e.g. r"\beta"
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class ParameterSymbol:
     domain: str
     units: str
     description: str
+    latex: str | None = None  # LaTeX form used in the paper's math, e.g. r"\beta"
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,7 @@ class VariableSymbol:
     bounds: tuple[float | None, float | None]
     units: str
     description: str
+    latex: str | None = None  # LaTeX form used in the paper's math, e.g. r"\beta"
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,7 @@ class ExpressionSymbol:
     units: str
     description: str
     expr: object  # callable in v2
+    latex: str | None = None  # LaTeX form used in the paper's math, e.g. r"\beta"
 
 
 @dataclass(frozen=True)
@@ -79,8 +83,24 @@ class PropertySymbol:
     z3_expr: object  # callable returning z3 expr
     given: tuple[str, ...]  # axiom names this property depends on
     description: str
+    lean_proof: str | None = None  # Lean tactic proof of the generated statement
+
+
+@dataclass(frozen=True)
+class TheoremSymbol:
+    """A claim stated and proved directly in Lean 4 (with Mathlib).
+
+    For claims Z3 cannot express: derivatives, sums over arbitrary sets,
+    statements for all n. The Lean statement is hand-written, so reports mark
+    it as such — unlike a Property, whose Lean statement is generated.
+    """
+    name: str
+    claim: str  # the claim in words / LaTeX, as the paper states it
+    lean: str   # full Lean source declaring `theorem <name>` (proof may be `sorry`)
+    description: str
 
 
 # Union of all symbol types
 Symbol = (SetSymbol | ParameterSymbol | VariableSymbol | ExpressionSymbol
-          | ConstraintSymbol | ObjectiveSymbol | AxiomSymbol | PropertySymbol)
+          | ConstraintSymbol | ObjectiveSymbol | AxiomSymbol | PropertySymbol
+          | TheoremSymbol)

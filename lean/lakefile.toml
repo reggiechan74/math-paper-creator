@@ -1,0 +1,10 @@
+# Lake project the plugin uses to check Lean proofs (see scripts/setup_env.py).
+# Pinned: the toolchain and Mathlib revision move together, and the generated
+# Proofs.lean files are only guaranteed to check against this pair.
+name = "mpc_proofs"
+version = "0.1.0"
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.36.0-rc2"

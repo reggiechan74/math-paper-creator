@@ -3,9 +3,9 @@
 from meta_compiler.registry import registry
 
 
-def Set(name: str, *, description: str = "") -> "SymbolProxy":
+def Set(name: str, *, description: str = "", latex: str | None = None) -> "SymbolProxy":
     """Declare an index set."""
-    return registry.register_set(name, description=description)
+    return registry.register_set(name, description=description, latex=latex)
 
 
 def Parameter(
@@ -15,9 +15,10 @@ def Parameter(
     domain: str = "real",
     units: str = "dimensionless",
     description: str = "",
+    latex: str | None = None,
 ) -> "SymbolProxy":
     """Declare a parameter."""
-    return registry.register_parameter(name, index=index, domain=domain, units=units, description=description)
+    return registry.register_parameter(name, index=index, domain=domain, units=units, description=description, latex=latex)
 
 
 def Variable(
@@ -28,9 +29,10 @@ def Variable(
     bounds: tuple[float | None, float | None] = (None, None),
     units: str = "dimensionless",
     description: str = "",
+    latex: str | None = None,
 ) -> "SymbolProxy":
     """Declare a decision variable."""
-    return registry.register_variable(name, index=index, domain=domain, bounds=bounds, units=units, description=description)
+    return registry.register_variable(name, index=index, domain=domain, bounds=bounds, units=units, description=description, latex=latex)
 
 
 def Expression(
@@ -40,9 +42,10 @@ def Expression(
     index=None,
     units: str = "dimensionless",
     description: str = "",
+    latex: str | None = None,
 ) -> "SymbolProxy":
     """Declare a derived expression."""
-    return registry.register_expression(name, definition=definition, index=index, units=units, description=description)
+    return registry.register_expression(name, definition=definition, index=index, units=units, description=description, latex=latex)
 
 
 def Constraint(
@@ -86,9 +89,31 @@ def Property(
     z3_expr: object,
     given: list[str] | tuple[str, ...],
     description: str = "",
+    lean_proof: str | None = None,
 ) -> None:
-    """Declare a derived property."""
-    registry.register_property(name, claim=claim, z3_expr=z3_expr, given=given, description=description)
+    """Declare a derived property.
+
+    ``lean_proof`` optionally proves it in Lean 4: the theorem statement is
+    generated from ``z3_expr`` with the ``given`` axioms as hypotheses, and
+    ``lean_proof`` is the tactic proof (e.g. ``"nlinarith [sq_nonneg (H - M)]"``).
+    """
+    registry.register_property(name, claim=claim, z3_expr=z3_expr, given=given,
+                               description=description, lean_proof=lean_proof)
+
+
+def Theorem(
+    name: str,
+    *,
+    claim: str,
+    lean: str,
+    description: str = "",
+) -> None:
+    """Declare a claim stated and proved in Lean 4 (Mathlib is imported).
+
+    ``lean`` must declare ``theorem <name>`` (helper lemmas may precede it).
+    Use ``sorry`` for a proof not yet written; ``mpc prove`` reports it.
+    """
+    registry.register_theorem(name, claim=claim, lean=lean, description=description)
 
 
 def S(name: str):

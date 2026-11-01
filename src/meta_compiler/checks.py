@@ -24,6 +24,7 @@ from meta_compiler.symbols import (
     ConstraintSymbol, ExpressionSymbol, ObjectiveSymbol,
     PropertySymbol,
     SetSymbol, ParameterSymbol, VariableSymbol,
+    TheoremSymbol,
 )
 
 if TYPE_CHECKING:
@@ -102,7 +103,8 @@ def _check_orphans(
     # not things that need to be referenced
     consumer_names = {
         name for name, sym in registry.symbols.items()
-        if isinstance(sym, (ConstraintSymbol, ObjectiveSymbol, AxiomSymbol, PropertySymbol))
+        if isinstance(sym, (ConstraintSymbol, ObjectiveSymbol, AxiomSymbol,
+                            PropertySymbol, TheoremSymbol))
     }
 
     combined = all_accessed | implicit_refs | consumer_names

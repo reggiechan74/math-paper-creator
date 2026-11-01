@@ -1,7 +1,7 @@
 {
   "name": "math-paper-creator",
   "displayName": "Math Paper Creator",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Author validated math papers interactively. Formalize concepts into prose, LaTeX math, and executable Python validation — each section checked before the next begins.",
   "author": {
     "name": "Reggie Chan"
@@ -15,5 +15,13 @@
     "validation",
     "meta-compiler",
     "optimization"
-  ]
+  ],
+  "userConfig": {
+    "enable_lean": {
+      "type": "boolean",
+      "title": "Enable Lean proofs",
+      "description": "Install Lean 4 and Mathlib (about 11 GB, downloaded once in the background) so /math-paper-creator:prove can machine-check proofs of Properties and Theorems.",
+      "default": false
+    }
+  }
 }

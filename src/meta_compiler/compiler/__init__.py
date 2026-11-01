@@ -23,6 +23,7 @@ def compile_document(
     filename: str = "model.model.md",
     strict: bool = True,
     skip_validation: bool = False,
+    proofs: dict | None = None,
 ) -> dict:
     """Full compilation pipeline: validate, then generate artifacts."""
     blocks = parse_document(source)
@@ -39,13 +40,19 @@ def compile_document(
         )
 
     paper = generate_paper(blocks, depth=depth)
-    report = generate_report(blocks, registry=result.registry, test_result=result)
+    report = generate_report(blocks, registry=result.registry, test_result=result,
+                             proofs=proofs)
+
+    from meta_compiler.lean import build_theorems, render_file
+
+    theorems, _ = build_theorems(result.registry)
 
     return {
         "paper": paper,
         "report": report,
         "report_text": report.to_text(),
         "runner": generate_runner(blocks, model_path=filename),
+        "lean": render_file(theorems)[0] if theorems else None,
     }
 
 

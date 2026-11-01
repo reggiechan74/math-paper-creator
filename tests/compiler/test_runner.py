@@ -70,3 +70,72 @@ print("hello")
     script = generate_runner(blocks, model_path="test.model.md")
     assert 'print("hello")' in script
     compile(script, "<runner>", "exec")  # valid Python
+
+
+# ── Behavioural tests: generated runners must give the same verdict as check ──
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from meta_compiler.compiler.parser import parse_document
+
+SRC = str(Path(__file__).resolve().parents[2] / "src")
+
+
+def _run_runner(tmp_path, doc: str, *args: str) -> subprocess.CompletedProcess:
+    script = tmp_path / "runner.py"
+    script.write_text(generate_runner(parse_document(doc), model_path="t.model.md"))
+    return subprocess.run(
+        [sys.executable, str(script), *args], capture_output=True, text=True,
+        cwd=tmp_path, env=dict(os.environ, PYTHONPATH=SRC), timeout=60,
+    )
+
+
+def test_runner_executes_and_passes(tmp_path):
+    doc = '''# A
+```python:fixture
+H = 8.0
+```
+```python:results
+print(f"H is {H}")
+```
+```python:validate
+Parameter("H", units="hours", description="h")
+Constraint("cap", expr=lambda: H <= 10, description="c")
+registry.run_tests()
+```
+'''
+    result = _run_runner(tmp_path, doc)
+    assert result.returncode == 0, result.stderr
+    assert "H is 8.0" in result.stdout
+    assert "All checks passed." in result.stdout
+
+
+def test_runner_reports_violated_constraint(tmp_path):
+    doc = '''```python:fixture
+H = 20.0
+```
+```python:validate
+Parameter("H", units="hours", description="h")
+Constraint("cap", expr=lambda: H <= 10, description="c")
+```
+'''
+    result = _run_runner(tmp_path, doc)
+    assert result.returncode == 1
+    assert 'Constraint "cap" failed' in result.stderr
+
+
+def test_runner_preserves_backslashes_and_quotes(tmp_path):
+    doc = r'''```python:fixture
+label = "a\\b"
+q = """triple"""
+```
+```python:validate
+Parameter("label", description="has a backslash")
+Constraint("ok", expr=lambda: label == "a\\b", description="c")
+```
+'''
+    result = _run_runner(tmp_path, doc)
+    assert result.returncode == 0, result.stderr
