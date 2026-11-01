@@ -128,6 +128,8 @@ A later fixture that reassigns a name (a scenario or sensitivity section) does n
 
 `mpc prove <file>` checks every Property and Theorem in Lean and records the results in `<paper>.proofs.json`; `mpc lean <file>` prints the generated Lean file. A proof counts only if Lean accepts it and it depends on no axioms beyond `propext`, `Classical.choice` and `Quot.sound` (so `sorry` and `axiom` never count). The report's **Verification Levels** section shows each claim as assumed, stated, Z3-checked or Lean-proved; editing a claim or proof marks its Lean result stale.
 
+**Statement approval.** `mpc approve <file> --name T1` records the author's approval that a claim's Lean statement says what the paper means, and the plugin asks the user to confirm. An approved statement is locked: edits that would change it are refused (for a Property this covers its `z3_expr`, its `given` list, and those axioms' expressions; for a Theorem, everything before its proof). `check` reports any change as an error, and `mpc approvals <file>` lists the state of each claim. To change an approved statement, revoke it first with `mpc approve --revoke --name T1` (also confirmed by the user).
+
 Translation notes: Z3 `Real` → `ℝ`, `Int` → `ℤ`; `x**2` → `x ^ 2`; non-integer exponents become `Real.rpow`; division follows Lean's convention `x / 0 = 0`.
 
 ## Symbol table

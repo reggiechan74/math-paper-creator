@@ -153,7 +153,13 @@ Axiom("A1", statement="H > 0", z3_expr=lambda: zH > 0, description="...")
 
 Because the Z3 name matches the Parameter, the checker also tests every axiom against the fixture data: a fixture with `H = -5` fails `A1`. Never write `H = Real('H')` — that replaces the Parameter's value in later constraints.
 
-**Lean proofs (optional).** Once a Property passes the Z3 check, it can also be machine-checked in Lean with `/math-paper-creator:prove`. This works if the user enabled the plugin's **Enable Lean proofs** option. For claims Z3 cannot express, such as derivatives (comparative statics), sums over arbitrary sets, or statements for all n, register a `Theorem` with a Lean statement instead (see the API reference). Before registering a Theorem, show the user its Lean statement with a plain-English reading and get explicit approval that it says what the paper claims. Use `sorry` as the proof until `/math-paper-creator:prove` fills it in.
+**Lean proofs (optional).** Once a Property passes the Z3 check, it can also be machine-checked in Lean with `/math-paper-creator:prove`. This works if the user enabled the plugin's **Enable Lean proofs** option. For claims Z3 cannot express, such as derivatives (comparative statics), sums over arbitrary sets, or statements for all n, register a `Theorem` with a Lean statement instead (see the API reference). Before registering a Theorem, show the user its Lean statement with a plain-English reading and get explicit approval that it says what the paper claims. Use `sorry` as the proof until `/math-paper-creator:prove` fills it in. When the user approves, record it, and the plugin will ask them to confirm:
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" approve "<absolute_file_path>" --name <claim>
+```
+
+Once approved, a statement is locked: the plugin refuses edits that would change it until the user revokes the approval (`approve --revoke`, which they also confirm).
 
 **Review findings path:** If the paper was loaded from review findings (Step 1, item 0), the scope declaration prompt still fires — review findings do not set `epistemic_type`.
 

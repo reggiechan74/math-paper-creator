@@ -5,6 +5,16 @@ All notable changes to math-paper-creator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-11-01
+
+### Added
+- **Statement approval and locking (Phase 3).** `mpc approve <paper> --name <claim>` records the author's approval of a claim's Lean statement in `<paper>.proofs.json`, pinned by a digest of what fixes its meaning (a Property's expression and given axioms; a Theorem's text before its proof, helper lemmas included)
+  - PreToolUse guard (`scripts/guard.py`): denies Write/Edit that would change or remove an approved statement (the edit is simulated first), denies direct edits of `.proofs.json`, and asks the user to confirm `mpc approve`/`--revoke` and shell writes to `.proofs.json`. The confirmation prompt shows the statements and holds even in bypass-permissions mode
+  - `check` (and the PostToolUse validation hook) report changed approved statements as errors; `mpc approvals` lists approved/unapproved/changed claims
+  - The report marks hand-written Theorems as approved or not; the prove skill no longer re-asks for approved statements
+- **Lean MCP server (Phase 2).** `.mcp.json` runs a pinned `lean-lsp-mcp` (0.31.0) against the plugin's Lean project for live goal states, multi-tactic attempts and Mathlib search; without Lean it serves an inactive stub with no tools. `mpc lean --workspace` writes a paper's Lean file into the project for these tools
+- The prove skill uses the MCP tools for interactive proof search; `mpc prove` stays the authority
+
 ## [0.9.0] - 2026-11-01
 
 ### Fixed

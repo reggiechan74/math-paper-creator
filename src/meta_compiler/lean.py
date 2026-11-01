@@ -208,6 +208,11 @@ class LeanTheorem:
     source: str        # Lean declaration(s), proof included
     statement: str     # the statement only, for display
     has_proof: bool    # False when no proof was supplied (a `sorry` is inserted)
+    locked: str = ""   # what an approval pins: everything that fixes the meaning
+
+    def statement_digest(self) -> str:
+        text = re.sub(r"\s+", " ", self.locked or self.statement).strip()
+        return hashlib.sha256(text.encode()).hexdigest()
 
     def digest(self, toolchain: str) -> str:
         return hashlib.sha256(f"{toolchain}\n{self.source}".encode()).hexdigest()
@@ -255,6 +260,7 @@ def property_theorem(sym, registry: "Registry") -> LeanTheorem:
         source=statement + _format_proof(proof),
         statement=statement[:-3].rstrip(),
         has_proof=bool(sym.lean_proof and sym.lean_proof.strip()),
+        locked=statement[:-3].rstrip(),
     )
 
 
@@ -282,9 +288,13 @@ def theorem_theorem(sym) -> LeanTheorem:
     stmt = source[stmt_start:]
     cut = stmt.find(":=")
     statement = stmt[:cut].rstrip() if cut >= 0 else stmt
+    # Helper definitions/lemmas before the theorem can change what its
+    # statement means, so an approval pins them too; only the main proof
+    # (after its `:=`) may change freely.
+    locked = source[: stmt_start + cut].rstrip() if cut >= 0 else source
     return LeanTheorem(
         name=sym.name, origin="theorem", source=source, statement=statement,
-        has_proof=not re.search(r"\bsorry\b", source),
+        has_proof=not re.search(r"\bsorry\b", source), locked=locked,
     )
 
 
@@ -378,6 +388,22 @@ def find_lean_env() -> LeanEnv | None:
     env["PATH"] = str(Path(lake).parent) + os.pathsep + env.get("PATH", "")
     toolchain = (project / "lean-toolchain").read_text().strip()
     return LeanEnv(project=project, lake=lake, env=env, toolchain=toolchain)
+
+
+def workspace_file(lean_env: LeanEnv, model_path: Path) -> Path:
+    """A scratch .lean file inside the Lean project, one per paper.
+
+    The Lean MCP tools (lean_goal, lean_diagnostic_messages, ...) work on
+    files inside the project. `mpc prove` remains the authority; this file is
+    only for interactive proof search.
+    """
+    name = model_path.name
+    stem = name[: -len(".model.md")] if name.endswith(".model.md") else model_path.stem
+    stem = re.sub(r"[^A-Za-z0-9_]", "_", stem) or "Paper"
+    digest = hashlib.sha256(str(model_path.resolve()).encode()).hexdigest()[:8]
+    folder = lean_env.project / "MPCWorkspace"
+    folder.mkdir(exist_ok=True)
+    return folder / f"{stem}_{digest}.lean"
 
 
 @dataclass
@@ -517,6 +543,7 @@ def verification_levels(registry: "Registry", passed: bool, cache: dict | None) 
     entries = cache.get("results", {})
     theorems, problems = build_theorems(registry)
     by_name = {t.name: t for t in theorems}
+    approvals = approval_status(theorems, cache)
     out = []
 
     def lean_level(name: str) -> tuple[str | None, str]:
@@ -547,7 +574,81 @@ def verification_levels(registry: "Registry", passed: bool, cache: dict | None) 
                         "level": level, "detail": detail})
         elif isinstance(sym, TheoremSymbol):
             level, detail = lean_level(name)
-            detail = "; ".join(x for x in (detail, "hand-written Lean statement") if x)
+            note = {
+                "approved": "hand-written statement, approved by the author",
+                "changed": "hand-written statement CHANGED since the author approved it",
+            }.get(approvals.get(name), "hand-written statement, NOT yet approved by the author")
+            detail = "; ".join(x for x in (detail, note) if x)
             out.append({"name": name, "kind": "Theorem", "claim": sym.claim,
                         "level": level or "stated", "detail": detail})
     return out
+
+
+# ── Statement approvals ─────────────────────────────────────────────────────
+#
+# The author approves that a claim's Lean statement says what the paper
+# means. Approvals live in the sidecar under "approved" and pin a digest of
+# the statement (see LeanTheorem.locked). The plugin's PreToolUse guard
+# refuses edits that would change an approved statement, and `check` reports
+# any that changed anyway.
+
+
+def approval_status(theorems: list[LeanTheorem], cache: dict | None) -> dict[str, str]:
+    """name -> approved | changed | unapproved | removed."""
+    approved = (cache or {}).get("approved", {})
+    status = {}
+    names = set()
+    for th in theorems:
+        names.add(th.name)
+        entry = approved.get(th.name)
+        if entry is None:
+            status[th.name] = "unapproved"
+        elif entry.get("digest") == th.statement_digest():
+            status[th.name] = "approved"
+        else:
+            status[th.name] = "changed"
+    for name in approved:
+        if name not in names:
+            status[name] = "removed"
+    return status
+
+
+def approval_problems(theorems: list[LeanTheorem], cache: dict | None) -> list[str]:
+    """Errors for approved statements that no longer match the document."""
+    approved = (cache or {}).get("approved", {})
+    problems = []
+    for name, state in approval_status(theorems, cache).items():
+        if state == "changed":
+            problems.append(
+                f'Statement of "{name}" changed since the author approved it. '
+                f"Approved:\n{approved[name].get('statement', '')}\n"
+                "Restore it, or have the author revoke the approval first "
+                "(mpc approve --revoke)."
+            )
+        elif state == "removed":
+            problems.append(
+                f'"{name}" was removed, but the author had approved its statement. '
+                "Restore it, or have the author revoke the approval (mpc approve --revoke)."
+            )
+    return problems
+
+
+def record_approvals(cache: dict, theorems: list[LeanTheorem], names: list[str],
+                     *, revoke: bool = False) -> dict:
+    cache = dict(cache)
+    approved = dict(cache.get("approved", {}))
+    by_name = {t.name: t for t in theorems}
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for name in names:
+        if revoke:
+            approved.pop(name, None)
+            continue
+        th = by_name[name]
+        approved[name] = {
+            "digest": th.statement_digest(),
+            "statement": th.statement,
+            "origin": th.origin,
+            "approved_at": now,
+        }
+    cache["approved"] = approved
+    return cache

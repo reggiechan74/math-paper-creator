@@ -1,7 +1,7 @@
 # math-paper-creator
 
 <!-- badges-start -->
-![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-blueviolet)
 <!-- badges-end -->
@@ -176,6 +176,21 @@ Lean support is **opt-in** because it needs Lean 4 and Mathlib, about 11 GB down
 - `compile` also writes `Proofs.lean` with every claim's Lean statement and proof.
 
 To use your own Lean install instead, set `MPC_LEAN_PROJECT` to a Lake project that requires Mathlib.
+
+### Approving statements
+
+A proof is only worth something if its statement says what the paper claims. **You** approve that, and the plugin enforces it:
+
+- When you agree that a claim's Lean statement is right, Claude runs `mpc approve`. The plugin then shows you the statement in a `[plugin:math-paper-creator]` confirmation prompt, so only you can complete it. This holds even in bypass-permissions mode.
+- An approved statement is **locked**. The plugin refuses edits that would change it: for a Property, its expression, its given axioms or those axioms' expressions; for a Theorem, everything before its proof. Edits to the proofs themselves stay free. `check` reports any change that slips through as an error.
+- To change an approved statement, revoke the approval first (`mpc approve --revoke`, which you also confirm), then approve the new version.
+- `mpc approvals <paper>` lists each claim as approved, unapproved, or changed. The report marks hand-written Theorems as approved or not.
+
+This guards against a claim being quietly weakened until it becomes provable. It isn't a sandbox: anything outside Claude Code can still edit the files.
+
+### Interactive proof search
+
+With Lean enabled, the plugin also runs a Lean MCP server ([lean-lsp-mcp](https://github.com/project-numina/lean-lsp-mcp), pinned version). It gives `prove` live goal states, multi-tactic attempts and Mathlib lemma search when a proof doesn't close straight away. It needs [uv](https://docs.astral.sh/uv/) (`uvx`). Its lemma-search tools send queries to external search services (LeanSearch, Loogle, LeanFinder). Without Lean, the server offers no tools. If you enable Lean during a session, the tools appear from the next session.
 
 ## The API
 

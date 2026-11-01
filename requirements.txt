@@ -16,6 +16,8 @@
 #        - About 11 GB of free disk for the Lean toolchain and Mathlib, which the
 #          plugin downloads once, in the background, on the next session start.
 #        - Or point MPC_LEAN_PROJECT at your own Lake project that requires Mathlib.
+#        - uv (above) also provides `uvx`, which runs the Lean MCP server
+#          (lean-lsp-mcp) used for interactive proof search.
 #
 # ── What the plugin installs for you ────────────────────────────────────────
 #

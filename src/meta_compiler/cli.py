@@ -10,6 +10,8 @@ Usage:
     python -m meta_compiler.cli symbols <file.model.md> [--json]
     python -m meta_compiler.cli lean <file.model.md> [--name NAME]
     python -m meta_compiler.cli prove <file.model.md> [--name NAME] [--json]
+    python -m meta_compiler.cli approve <file.model.md> --name NAME [--revoke]
+    python -m meta_compiler.cli approvals <file.model.md> [--json]
 """
 
 from __future__ import annotations
@@ -97,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
     lean_parser.add_argument("file", type=Path, help="Path to .model.md file")
     lean_parser.add_argument("--name", action="append",
                              help="Only this claim (repeatable)")
+    lean_parser.add_argument(
+        "--workspace", action="store_true",
+        help="Write the file into the Lean project (for the Lean MCP tools) and print its path",
+    )
 
     # prove
     prove_parser = subparsers.add_parser(
@@ -110,11 +116,30 @@ def main(argv: list[str] | None = None) -> int:
     prove_parser.add_argument("--json", action="store_true",
                               help="Emit machine-readable JSON")
 
+    # approve
+    approve_parser = subparsers.add_parser(
+        "approve",
+        help="Record the author's approval of claim statements (the plugin asks you to confirm)",
+    )
+    approve_parser.add_argument("file", type=Path, help="Path to .model.md file")
+    approve_parser.add_argument("--name", action="append", required=True,
+                                help="Claim to approve (repeatable)")
+    approve_parser.add_argument("--revoke", action="store_true",
+                                help="Withdraw the approval instead")
+
+    # approvals
+    approvals_parser = subparsers.add_parser(
+        "approvals", help="Show which claim statements the author has approved"
+    )
+    approvals_parser.add_argument("file", type=Path, help="Path to .model.md file")
+    approvals_parser.add_argument("--json", action="store_true",
+                                  help="Emit machine-readable JSON")
+
     args = parser.parse_args(argv)
     source = args.file.read_text()
 
     if args.command == "check":
-        return _cmd_check(source, strict=args.strict)
+        return _cmd_check(source, strict=args.strict, path=args.file)
     elif args.command == "paper":
         return _cmd_paper(source, depth=args.depth, output=args.output,
                           strict=not args.no_strict,
@@ -132,17 +157,32 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "symbols":
         return _cmd_symbols(source, as_json=args.json)
     elif args.command == "lean":
-        return _cmd_lean(source, names=args.name)
+        return _cmd_lean(source, names=args.name, path=args.file,
+                         workspace=args.workspace)
+    elif args.command == "approve":
+        return _cmd_approve(source, path=args.file, names=args.name, revoke=args.revoke)
+    elif args.command == "approvals":
+        return _cmd_approvals(source, path=args.file, as_json=args.json)
     elif args.command == "prove":
         return _cmd_prove(source, path=args.file, names=args.name,
                           timeout=args.timeout, as_json=args.json)
     return 1
 
 
-def _cmd_check(source: str, *, strict: bool = False) -> int:
+def _cmd_check(source: str, *, strict: bool = False, path: Path | None = None) -> int:
     from meta_compiler.compiler import check_document
 
     result = check_document(source, strict=strict)
+    if path is not None and result.registry is not None:
+        from meta_compiler.lean import approval_problems, build_theorems
+
+        cache = _load_sidecar(path)
+        if cache and cache.get("approved"):
+            theorems, _ = build_theorems(result.registry)
+            problems = approval_problems(theorems, cache)
+            if problems:
+                result.errors.extend(problems)
+                result.passed = False
     if result.passed:
         print("PASSED")
         for w in result.warnings:
@@ -360,8 +400,9 @@ def _select(theorems, names):
     return [t for t in theorems if t.name in wanted]
 
 
-def _cmd_lean(source: str, *, names: list[str] | None) -> int:
-    from meta_compiler.lean import build_theorems, render_file
+def _cmd_lean(source: str, *, names: list[str] | None, path: Path | None = None,
+              workspace: bool = False) -> int:
+    from meta_compiler.lean import build_theorems, find_lean_env, render_file, workspace_file
 
     registry, _ = _registry_or_errors(source)
     if registry is None:
@@ -373,7 +414,20 @@ def _cmd_lean(source: str, *, names: list[str] | None) -> int:
     if not selected:
         print("No Properties or Theorems to translate.", file=sys.stderr)
         return 1
-    print(render_file(selected)[0], end="")
+    text, spans = render_file(selected)
+    if workspace:
+        lean_env = find_lean_env()
+        if lean_env is None:
+            print("Lean is not available (enable the plugin's `enable_lean` option, "
+                  "or set MPC_LEAN_PROJECT).", file=sys.stderr)
+            return 3
+        target = workspace_file(lean_env, path)
+        target.write_text(text)
+        print(target)
+        for name, (first, last) in spans.items():
+            print(f"  {name}: lines {first}-{last}")
+        return 0
+    print(text, end="")
     return 0
 
 
@@ -431,6 +485,62 @@ def _cmd_prove(source: str, *, path: Path, names: list[str] | None,
                 print("    " + msg.replace("\n", "\n    "))
         print(f"\nResults recorded in {sidecar}")
     return 0 if all(r.status == "proved" for r in results.values()) else 2
+
+
+def _cmd_approve(source: str, *, path: Path, names: list[str], revoke: bool) -> int:
+    from meta_compiler.lean import (
+        build_theorems, load_proofs, proofs_path, record_approvals, save_proofs,
+    )
+
+    registry, _ = _registry_or_errors(source)
+    if registry is None:
+        return 1
+    theorems, problems = build_theorems(registry)
+    by_name = {t.name: t for t in theorems}
+    sidecar = proofs_path(path)
+    cache = load_proofs(sidecar)
+    unknown = [n for n in names if n not in by_name and not (
+        revoke and n in cache.get("approved", {}))]
+    if unknown:
+        for n in unknown:
+            why = problems.get(n, "no Property or Theorem with that name")
+            print(f"Cannot {'revoke' if revoke else 'approve'} {n}: {why}", file=sys.stderr)
+        return 1
+
+    save_proofs(sidecar, record_approvals(cache, theorems, names, revoke=revoke))
+    for n in names:
+        if revoke:
+            print(f"Revoked approval of {n}.")
+        else:
+            print(f"Approved {n}:\n{by_name[n].statement}\n")
+    print(f"Recorded in {sidecar}")
+    return 0
+
+
+def _cmd_approvals(source: str, *, path: Path, as_json: bool) -> int:
+    import json
+
+    from meta_compiler.lean import approval_status, build_theorems
+
+    registry, _ = _registry_or_errors(source)
+    if registry is None:
+        return 1
+    theorems, _ = build_theorems(registry)
+    cache = _load_sidecar(path) or {}
+    status = approval_status(theorems, cache)
+    by_name = {t.name: t for t in theorems}
+    rows = [
+        {"name": n, "status": s, "origin": by_name[n].origin if n in by_name else None,
+         "statement": by_name[n].statement if n in by_name else
+         cache.get("approved", {}).get(n, {}).get("statement")}
+        for n, s in status.items()
+    ]
+    if as_json:
+        print(json.dumps({"approvals": rows}, indent=2, ensure_ascii=False))
+    else:
+        for row in rows:
+            print(f"{row['status']:<11} {row['name']}")
+    return 1 if any(r["status"] in ("changed", "removed") for r in rows) else 0
 
 
 if __name__ == "__main__":

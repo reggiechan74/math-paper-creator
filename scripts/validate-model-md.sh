@@ -89,6 +89,22 @@ result = check_document(source, strict=False)
 blocks = parse_document(source)
 cov = coverage_metric(blocks)
 
+# Approved claim statements must not change (see scripts/guard.py)
+if result.registry is not None:
+    try:
+        from meta_compiler.lean import (
+            approval_problems, build_theorems, load_proofs, proofs_path,
+        )
+        cache = load_proofs(proofs_path(file_path_obj))
+        if cache.get("approved"):
+            theorems, _ = build_theorems(result.registry)
+            problems = approval_problems(theorems, cache)
+            if problems:
+                result.errors.extend(problems)
+                result.passed = False
+    except Exception:
+        pass
+
 if not result.passed:
     # Validation failed — block with error details
     errors = "; ".join(result.errors)
