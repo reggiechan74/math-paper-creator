@@ -11,17 +11,6 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Prefer the managed venv (see setup_env.py); fall back to python3 on PATH.
-PY="python3"
-if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/venv/.ready" ]; then
-  for candidate in "${CLAUDE_PLUGIN_DATA}/venv/bin/python" "${CLAUDE_PLUGIN_DATA}/venv/Scripts/python.exe"; do
-    if [ -x "$candidate" ]; then
-      PY="$candidate"
-      break
-    fi
-  done
-fi
-
 # Read stdin before the heredoc consumes it
 HOOK_INPUT="$(cat)"
 
@@ -34,7 +23,8 @@ case "$(printf '%s' "${CLAUDE_PLUGIN_OPTION_LIVE_VALIDATION:-true}" | tr '[:uppe
 esac
 
 # Delegate everything to Python for safe JSON handling
-HOOK_INPUT="$HOOK_INPUT" exec "$PY" - "$PROJECT_DIR" <<'PYTHON_SCRIPT'
+# scripts/mpc picks the interpreter (managed venv, else a system Python 3.10+)
+HOOK_INPUT="$HOOK_INPUT" exec bash "$SCRIPT_DIR/mpc" --python - "$PROJECT_DIR" <<'PYTHON_SCRIPT'
 import json
 import os
 import sys

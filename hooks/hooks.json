@@ -5,8 +5,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3",
+            "command": "bash",
             "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/mpc",
+              "--bootstrap",
               "${CLAUDE_PLUGIN_ROOT}/scripts/setup_env.py"
             ],
             "timeout": 30

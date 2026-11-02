@@ -2,7 +2,8 @@
 #
 # ── What you install yourself ────────────────────────────────────────────────
 #
-#   1. Python 3.10 or newer, available as `python3` on your PATH, plus ONE of:
+#   1. Python 3.10 or newer on your PATH (as python3, python, or the Windows
+#      `py` launcher), plus ONE of:
 #        - uv (https://docs.astral.sh/uv/)                         recommended
 #        - the venv module with pip (Debian/Ubuntu: apt install python3-venv)
 #
@@ -33,3 +34,5 @@
 
 numpy>=1.24        # numeric evaluation of fixtures, constraints and objectives
 z3-solver>=4.12    # axiom consistency, property implication, axiom-vs-data checks
+pyomo>=6.10        # mpc solve: builds the optimization model from the paper's lambdas
+highspy>=1.15      # mpc solve: HiGHS solver for linear and mixed-integer models

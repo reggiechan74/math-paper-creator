@@ -15,8 +15,41 @@
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-PY="python3"
-if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/venv/.ready" ]; then
+# Git Bash / MSYS on Windows: native Python wants Windows paths and ';'.
+SEP=":"
+SRC="${ROOT}/src"
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    SEP=";"
+    if command -v cygpath >/dev/null 2>&1; then SRC="$(cygpath -w "$SRC")"; fi
+    ;;
+esac
+
+# A system Python 3.10+: python3, then python, then the Windows launcher.
+find_system_python() {
+  local candidate
+  for candidate in "python3" "python" "py -3"; do
+    # shellcheck disable=SC2086
+    if command -v ${candidate%% *} >/dev/null 2>&1 &&
+       $candidate -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+BOOTSTRAP=0
+if [ "${1:-}" = "--bootstrap" ]; then
+  # Run a script with the system Python, never the managed venv (used by the
+  # SessionStart hook that builds that venv).
+  BOOTSTRAP=1
+  shift
+  set -- --python "$@"
+fi
+
+PY=""
+if [ "$BOOTSTRAP" = 0 ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/venv/.ready" ]; then
   for candidate in "${CLAUDE_PLUGIN_DATA}/venv/bin/python" "${CLAUDE_PLUGIN_DATA}/venv/Scripts/python.exe"; do
     if [ -x "$candidate" ]; then
       PY="$candidate"
@@ -24,12 +57,20 @@ if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/venv/.ready" 
     fi
   done
 fi
+if [ -z "$PY" ]; then
+  PY="$(find_system_python)" || {
+    echo "math-paper-creator: Python 3.10 or newer is required (tried python3, python, py -3)" >&2
+    exit 127
+  }
+fi
 
-export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${SRC}${PYTHONPATH:+${SEP}${PYTHONPATH}}"
 
 if [ "${1:-}" = "--python" ]; then
   shift
-  exec "$PY" "$@"
+  # shellcheck disable=SC2086
+  exec $PY "$@"
 fi
 
-exec "$PY" -m meta_compiler.cli "$@"
+# shellcheck disable=SC2086
+exec $PY -m meta_compiler.cli "$@"

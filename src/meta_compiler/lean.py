@@ -230,17 +230,17 @@ def _format_proof(proof: str) -> str:
 
 def property_theorem(sym, registry: "Registry") -> LeanTheorem:
     """Generate the Lean theorem for a Property from its Z3 expressions."""
-    from meta_compiler.symbols import AxiomSymbol
+    from meta_compiler.symbols import AxiomSymbol, PropertySymbol
 
     hypotheses = []
     exprs = []
-    for axiom_name in sym.given:
-        ax = registry.symbols.get(axiom_name)
-        if not isinstance(ax, AxiomSymbol) or ax.z3_expr is None:
-            raise UntranslatableError(f'given axiom "{axiom_name}" has no z3_expr')
-        e = ax.z3_expr()
+    for premise in sym.given:
+        given = registry.symbols.get(premise)
+        if not isinstance(given, (AxiomSymbol, PropertySymbol)) or given.z3_expr is None:
+            raise UntranslatableError(f'given premise "{premise}" has no z3_expr')
+        e = given.z3_expr()
         exprs.append(e)
-        hypotheses.append((axiom_name, e))
+        hypotheses.append((premise, e))
     goal = sym.z3_expr()
     exprs.append(goal)
 
@@ -530,6 +530,9 @@ def record_results(cache: dict, theorems: list[LeanTheorem], results: dict[str, 
     return cache
 
 
+_RANK = {"stated": 0, "Z3-checked": 1, "Lean-proved": 2}
+
+
 def verification_levels(registry: "Registry", passed: bool, cache: dict | None) -> list[dict]:
     """Per-claim evidence level, for reports.
 
@@ -544,6 +547,7 @@ def verification_levels(registry: "Registry", passed: bool, cache: dict | None) 
     theorems, problems = build_theorems(registry)
     by_name = {t.name: t for t in theorems}
     approvals = approval_status(theorems, cache)
+    effective: dict[str, str] = {}
     out = []
 
     def lean_level(name: str) -> tuple[str | None, str]:
@@ -570,6 +574,14 @@ def verification_levels(registry: "Registry", passed: bool, cache: dict | None) 
             level, detail = lean_level(name)
             if level is None:
                 level = "Z3-checked" if passed and z3_available() else "stated"
+            # A chain is only as strong as its weakest premise.
+            weaker = [(p, effective[p]) for p in sym.given
+                      if p in effective and _RANK[effective[p]] < _RANK[level]]
+            if weaker:
+                level = min((lv for _, lv in weaker), key=_RANK.get)
+                note = "relies on " + ", ".join(f"{p} ({lv})" for p, lv in weaker)
+                detail = "; ".join(x for x in (detail, note) if x)
+            effective[name] = level
             out.append({"name": name, "kind": "Property", "claim": sym.claim,
                         "level": level, "detail": detail})
         elif isinstance(sym, TheoremSymbol):
@@ -579,9 +591,19 @@ def verification_levels(registry: "Registry", passed: bool, cache: dict | None) 
                 "changed": "hand-written statement CHANGED since the author approved it",
             }.get(approvals.get(name), "hand-written statement, NOT yet approved by the author")
             detail = "; ".join(x for x in (detail, note) if x)
+            data_check = (cache.get("data_checks") or {}).get(name)
+            data_summary = None
+            th = by_name.get(name)
+            if data_check and th and data_check.get("digest") == th.statement_digest():
+                data_summary = data_check.get("summary")
+                if data_summary == "not_applicable":
+                    detail += "; its hypotheses do NOT hold for the paper's example data"
+                elif data_summary == "refuted":
+                    detail += "; its conclusion is FALSE at the paper's example data"
             out.append({"name": name, "kind": "Theorem", "claim": sym.claim,
                         "level": level or "stated", "detail": detail,
-                        "approval": approvals.get(name, "unapproved")})
+                        "approval": approvals.get(name, "unapproved"),
+                        "data_check": data_summary})
     for entry in out:
         entry["line"] = registry.defined_at.get(entry["name"])
     return out
@@ -654,4 +676,212 @@ def record_approvals(cache: dict, theorems: list[LeanTheorem], names: list[str],
             "approved_at": now,
         }
     cache["approved"] = approved
+    return cache
+
+
+# ── Theorems vs. the paper's example data ───────────────────────────────────
+#
+# A hand-written Theorem can be proved and still say nothing about the
+# paper's model — for instance if it assumes `0 < M` while the paper's example
+# has M = 0. Binders named like a scalar Parameter/Variable are instantiated
+# with its fixture value, and Lean decides each hypothesis and the conclusion
+# at those values (norm_num, trying the claim and its negation).
+
+_NUMERIC_TYPES = {"ℝ": "ℝ", "Real": "ℝ", "ℚ": "ℚ", "Rat": "ℚ",
+                  "ℤ": "ℤ", "Int": "ℤ", "ℕ": "ℕ", "Nat": "ℕ"}
+_OPEN, _CLOSE = "({[⦃", ")}]⦄"
+
+
+@dataclass
+class Binder:
+    names: list[str]
+    type: str
+    explicit: bool
+
+
+def split_statement(statement: str) -> tuple[list[Binder], str] | None:
+    """Binders and conclusion of `theorem NAME (binders...) : conclusion`."""
+    m = re.match(r"\s*(?:theorem|lemma)\s+(«[^»]+»|\S+)", statement)
+    if not m:
+        return None
+    rest = statement[m.end():]
+    binders: list[Binder] = []
+    i = 0
+    while True:
+        while i < len(rest) and rest[i].isspace():
+            i += 1
+        if i >= len(rest):
+            return None
+        if rest[i] == ":":
+            return binders, rest[i + 1:].strip()
+        if rest[i] not in _OPEN:
+            return None
+        depth, j = 0, i
+        while j < len(rest):
+            if rest[j] in _OPEN:
+                depth += 1
+            elif rest[j] in _CLOSE:
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        inner = rest[i + 1:j]
+        explicit = rest[i] == "("
+        i = j + 1
+        if rest[i - 1] == "]" or ":" not in inner:
+            continue  # instance binder [Fact p] or anonymous
+        names, _, typ = inner.partition(":")
+        binders.append(Binder(names.split(), typ.strip(), explicit))
+
+
+def _mentions(text: str, name: str) -> bool:
+    return re.search(rf"(?<![\w.']){re.escape(name)}(?![\w'])", text) is not None
+
+
+def _lean_literal(value, typ: str) -> str | None:
+    from decimal import Decimal, InvalidOperation
+    from fractions import Fraction
+
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if num != num or num in (float("inf"), float("-inf")):
+        return None
+    if typ in ("ℕ", "ℤ"):
+        if not num.is_integer() or (typ == "ℕ" and num < 0):
+            return None
+        return f"({int(num)} : {typ})"
+    try:
+        frac = Fraction(Decimal(repr(num)))
+    except (InvalidOperation, ValueError):
+        frac = Fraction(num)
+    if frac.denominator == 1:
+        return f"({frac.numerator} : {typ})"
+    return f"(({frac.numerator} : {typ}) / {frac.denominator})"
+
+
+@dataclass
+class DataCheck:
+    theorem: str
+    values: dict[str, float]
+    items: list[dict]  # {"part": "hypothesis"|"conclusion", "name", "text", "lean"}
+
+    def summary(self) -> str:
+        """applies | not_applicable | refuted | undetermined | unchecked"""
+        if not self.items:
+            return "unchecked"
+        hyps = [i for i in self.items if i["part"] == "hypothesis"]
+        concl = [i for i in self.items if i["part"] == "conclusion"]
+        if any(h.get("status") == "fails" for h in hyps):
+            return "not_applicable"
+        if concl and concl[0].get("status") == "fails" and all(
+                h.get("status") == "holds" for h in hyps):
+            return "refuted"
+        if all(i.get("status") == "holds" for i in self.items):
+            return "applies"
+        return "undetermined"
+
+    def to_json(self) -> dict:
+        return {"summary": self.summary(), "values": self.values,
+                "items": [{k: v for k, v in i.items() if k != "lean"} for i in self.items]}
+
+
+def build_data_check(th: LeanTheorem, data: dict) -> DataCheck | None:
+    """Lean instances of a Theorem's hypotheses and conclusion at the data."""
+    parsed = split_statement(th.statement)
+    if parsed is None:
+        return None
+    binders, conclusion = parsed
+    values: dict[str, float] = {}
+    fun_params: list[str] = []
+    args: list[str] = []
+    unbound: list[str] = []
+    hyps: list[tuple[str, str]] = []
+    for b in binders:
+        typ = _NUMERIC_TYPES.get(b.type)
+        for name in b.names:
+            if typ is not None:
+                lit = _lean_literal(data.get(name), typ) if name in data else None
+                if lit is None:
+                    unbound.append(name)
+                else:
+                    values[name] = data[name]
+                    fun_params.append(f"({ident(name)} : {typ})")
+                    args.append(lit)
+            elif b.type not in ("Prop", "Type", "Sort"):
+                if any(_mentions(b.type, v) for v in [*values, *unbound]):
+                    hyps.append((name, b.type))
+                else:
+                    unbound.append(name)  # e.g. a function binder (f : ℝ → ℝ)
+    if not values:
+        return None
+
+    def instance(text: str) -> str | None:
+        if any(_mentions(text, u) for u in unbound):
+            return None
+        return f"(fun {' '.join(fun_params)} => ({text})) {' '.join(args)}"
+
+    items = []
+    for name, text in hyps:
+        lean = instance(text)
+        items.append({"part": "hypothesis", "name": name, "text": text, "lean": lean})
+    lean = instance(conclusion)
+    items.append({"part": "conclusion", "name": "conclusion", "text": conclusion, "lean": lean})
+    return DataCheck(theorem=th.name, values=values, items=items)
+
+
+def run_data_checks(checks: list[DataCheck], lean_env: LeanEnv, *,
+                    timeout: int = 300) -> None:
+    """Decide each instance with Lean; sets item["status"] in place."""
+    lines = HEADER.splitlines()
+    spans: list[tuple[dict, str, int]] = []
+    for check in checks:
+        for item in check.items:
+            if item["lean"] is None:
+                item["status"] = "undetermined"
+                continue
+            for polarity, prop in (("holds", item["lean"]), ("fails", f"¬ ({item['lean']})")):
+                lines.append("")
+                lines.append(f"example : {prop} := by norm_num")
+                spans.append((item, polarity, len(lines)))
+    lines += ["", f"end {NAMESPACE}", ""]
+    if not spans:
+        return
+    with tempfile.TemporaryDirectory(prefix="mpc-data-") as tmp:
+        path = Path(tmp) / "DataCheck.lean"
+        path.write_text("\n".join(lines))
+        try:
+            proc = subprocess.run(
+                [lean_env.lake, "env", "lean", "--json", str(path)],
+                cwd=lean_env.project, env=lean_env.env,
+                capture_output=True, text=True, timeout=timeout,
+            )
+            output = proc.stdout
+        except subprocess.TimeoutExpired:
+            output = ""
+    error_lines = set()
+    for line in output.splitlines():
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if msg.get("severity") == "error":
+            error_lines.add(msg.get("pos", {}).get("line"))
+    for item, polarity, line in spans:
+        if line not in error_lines:
+            item["status"] = polarity  # Lean proved this polarity
+    for check in checks:
+        for item in check.items:
+            item.setdefault("status", "undetermined")
+
+
+def record_data_checks(cache: dict, theorems: list[LeanTheorem],
+                       checks: dict[str, DataCheck]) -> dict:
+    cache = dict(cache)
+    stored = dict(cache.get("data_checks", {}))
+    for th in theorems:
+        if th.name in checks:
+            stored[th.name] = {**checks[th.name].to_json(), "digest": th.statement_digest()}
+    cache["data_checks"] = stored
     return cache

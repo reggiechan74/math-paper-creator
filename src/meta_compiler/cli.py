@@ -13,6 +13,7 @@ Usage:
     python -m meta_compiler.cli approve <file.model.md> --name NAME [--revoke]
     python -m meta_compiler.cli approvals <file.model.md> [--json]
     python -m meta_compiler.cli sweep <file.model.md> [--samples N] [--seed S] [--json]
+    python -m meta_compiler.cli solve <file.model.md> [--objective NAME] [--solver highs|ipopt] [--json]
 """
 
 from __future__ import annotations
@@ -156,6 +157,19 @@ def main(argv: list[str] | None = None) -> int:
     sweep_parser.add_argument("--json", action="store_true",
                               help="Emit machine-readable JSON")
 
+    # solve
+    solve_parser = subparsers.add_parser(
+        "solve", help="Solve the optimization model with Pyomo (optimal decision, binding constraints)"
+    )
+    solve_parser.add_argument("file", type=Path, help="Path to .model.md file")
+    solve_parser.add_argument("--objective", help="Objective to optimize (if there are several)")
+    solve_parser.add_argument("--solver", default="highs",
+                              help="Solver: highs (default, LP/MIP) or ipopt (nonlinear)")
+    solve_parser.add_argument("--time-limit", type=float, default=60,
+                              help="Seconds before the solver stops (default 60)")
+    solve_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    solve_parser.add_argument("--output", type=Path, help="Also write the JSON solution here")
+
     args = parser.parse_args(argv)
     source = args.file.read_text()
 
@@ -189,6 +203,9 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_approvals(source, path=args.file, as_json=args.json)
     elif args.command == "sweep":
         return _cmd_sweep(source, samples=args.samples, seed=args.seed, as_json=args.json)
+    elif args.command == "solve":
+        return _cmd_solve(source, objective=args.objective, solver=args.solver,
+                          time_limit=args.time_limit, as_json=args.json, output=args.output)
     elif args.command == "prove":
         return _cmd_prove(source, path=args.file, names=args.name,
                           timeout=args.timeout, as_json=args.json)
@@ -461,6 +478,31 @@ def _cmd_lean(source: str, *, names: list[str] | None, path: Path | None = None,
     return 0
 
 
+def _scalar_data(registry, base: dict) -> dict:
+    from meta_compiler.symbols import ParameterSymbol, VariableSymbol
+
+    return {
+        n: v for n, v in base.items()
+        if isinstance(registry.symbols.get(n), (ParameterSymbol, VariableSymbol))
+        and registry._is_scalar(v) and not isinstance(v, str)
+    }
+
+
+def _describe_data_check(check) -> str:
+    values = ", ".join(f"{k}={v}" for k, v in check.values.items())
+    summary = check.summary()
+    if summary == "applies":
+        return f"hypotheses and conclusion hold at {values}"
+    if summary == "not_applicable":
+        failing = [f"{i['name']} : {i['text']}" for i in check.items
+                   if i["part"] == "hypothesis" and i.get("status") == "fails"]
+        return (f"DOES NOT APPLY to the paper's example — false at {values}: "
+                + "; ".join(failing))
+    if summary == "refuted":
+        return f"conclusion is FALSE at {values} although its hypotheses hold"
+    return f"could not be decided at {values}"
+
+
 def _cmd_prove(source: str, *, path: Path, names: list[str] | None,
                timeout: int, as_json: bool) -> int:
     import json
@@ -495,8 +537,19 @@ def _cmd_prove(source: str, *, path: Path, names: list[str] | None,
     for name, problem in problems.items():
         results[name] = ProofResult("untranslatable", [problem])
 
+    # Hand-written Theorems: do they apply to the paper's example data?
+    from meta_compiler.lean import build_data_check, record_data_checks, run_data_checks
+
+    data = _scalar_data(registry, check.base_data or {})
+    checks = [c for c in (build_data_check(t, data) for t in selected
+                          if t.origin == "theorem") if c is not None]
+    if checks:
+        run_data_checks(checks, lean_env, timeout=timeout)
+    data_checks = {c.theorem: c for c in checks}
+
     sidecar = proofs_path(path)
     cache = record_results(load_proofs(sidecar), selected, results, lean_env.toolchain)
+    cache = record_data_checks(cache, selected, data_checks)
     save_proofs(sidecar, cache)
 
     origin = {t.name: t.origin for t in selected}
@@ -504,7 +557,9 @@ def _cmd_prove(source: str, *, path: Path, names: list[str] | None,
         print(json.dumps({
             "toolchain": lean_env.toolchain,
             "sidecar": str(sidecar),
-            "results": {n: {**r.to_json(), "origin": origin.get(n)} for n, r in results.items()},
+            "results": {n: {**r.to_json(), "origin": origin.get(n),
+                            **({"data_check": data_checks[n].to_json()} if n in data_checks else {})}
+                        for n, r in results.items()},
         }, indent=2, ensure_ascii=False))
     else:
         marks = {"proved": "✓", "sorry": "…", "failed": "✗", "error": "!", "untranslatable": "?"}
@@ -513,6 +568,8 @@ def _cmd_prove(source: str, *, path: Path, names: list[str] | None,
             print(f"{marks.get(r.status, '?')} {name}: {r.status}{label}")
             for msg in r.messages:
                 print("    " + msg.replace("\n", "\n    "))
+            if name in data_checks:
+                print("    example data: " + _describe_data_check(data_checks[name]))
         print(f"\nResults recorded in {sidecar}")
     return 0 if all(r.status == "proved" for r in results.values()) else 2
 
@@ -587,6 +644,24 @@ def _cmd_sweep(source: str, *, samples: int, seed: int, as_json: bool) -> int:
     if report.error:
         return 1
     return 0 if report.ok else 2
+
+
+def _cmd_solve(source: str, *, objective: str | None, solver: str, time_limit: float,
+               as_json: bool, output: Path | None) -> int:
+    import json
+
+    from meta_compiler.compiler.parser import parse_document
+    from meta_compiler.solver import format_solution, solve_blocks
+
+    sol = solve_blocks(parse_document(source), objective=objective, solver=solver,
+                       time_limit=time_limit)
+    payload = json.dumps(sol.to_json(), indent=2, default=str)
+    if output:
+        output.write_text(payload + "\n")
+    print(payload if as_json else format_solution(sol))
+    if output and not as_json:
+        print(f"\nSolution written to {output}")
+    return {"optimal": 0, "error": 1}.get(sol.status, 2)
 
 
 if __name__ == "__main__":

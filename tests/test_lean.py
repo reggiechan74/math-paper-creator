@@ -244,3 +244,123 @@ def test_real_prove_cli_writes_sidecar(tmp_path, capsys):
     sidecar = json.loads((tmp_path / "paper.proofs.json").read_text())
     assert sidecar["results"]["P1"]["status"] == "proved"
     assert sidecar["toolchain"] == lean_env.toolchain
+
+
+# ── Theorems vs. example data ───────────────────────────────────────────────
+
+from meta_compiler.lean import DataCheck, LeanTheorem, build_data_check, split_statement
+
+
+def _th(stmt):
+    return LeanTheorem(name="T", origin="theorem", source=stmt + " := sorry",
+                       statement=stmt, has_proof=False)
+
+
+class TestDataCheck:
+    def test_split_statement(self):
+        binders, concl = split_statement("theorem T (H M : ℝ) {k : ℕ} [Fact (0 < 1)] (h : 0 < M) : H - M < H")
+        assert [(b.names, b.type, b.explicit) for b in binders] == [
+            (["H", "M"], "ℝ", True), (["k"], "ℕ", False), (["h"], "0 < M", True)]
+        assert concl == "H - M < H"
+
+    def test_instances_use_exact_values(self):
+        check = build_data_check(_th("theorem T (H M : ℝ) (h : 0 < M) : H - M < H"),
+                                 {"H": 8.0, "M": 0.75})
+        hyp = check.items[0]
+        assert hyp["part"] == "hypothesis" and hyp["name"] == "h"
+        assert hyp["lean"] == "(fun (H : ℝ) (M : ℝ) => (0 < M)) (8 : ℝ) ((3 : ℝ) / 4)"
+
+    def test_unbound_binders_make_items_undecidable(self):
+        check = build_data_check(_th("theorem T (f : ℝ → ℝ) (H : ℝ) (hf : f H > 0) : f H ≥ 0"),
+                                 {"H": 8.0})
+        assert all(i["lean"] is None for i in check.items)
+
+    def test_no_data_names_means_no_check(self):
+        assert build_data_check(_th("theorem T (x : ℝ) : x ^ 2 ≥ 0"), {"H": 8.0}) is None
+
+    def test_integer_binders_need_integral_values(self):
+        check = build_data_check(_th("theorem T (n : ℕ) (h : 0 < n) : n ≥ 1"), {"n": 2.5})
+        assert check is None
+
+    def test_summary(self):
+        def mk(*statuses):
+            items = [{"part": "hypothesis", "status": s} for s in statuses[:-1]]
+            items.append({"part": "conclusion", "status": statuses[-1]})
+            return DataCheck("T", {}, items).summary()
+        assert mk("holds", "holds") == "applies"
+        assert mk("fails", "holds") == "not_applicable"
+        assert mk("holds", "fails") == "refuted"
+        assert mk("undetermined", "holds") == "undetermined"
+
+
+@needs_lean
+def test_real_lean_data_check():
+    from meta_compiler.lean import run_data_checks
+
+    checks = [build_data_check(_th("theorem T (H M : ℝ) (h : 0 < M) : H - M < H"), {"H": 8.0, "M": 0.0}),
+              build_data_check(_th("theorem T (H M : ℝ) (h : 0 ≤ M) : H - M < 1"), {"H": 8.0, "M": 0.0})]
+    run_data_checks(checks, lean_env)
+    assert [c.summary() for c in checks] == ["not_applicable", "refuted"]
+
+
+# ── Properties built on Properties ──────────────────────────────────────────
+
+CHAIN = '''```python:fixture
+H = 8.0
+M = 2.0
+```
+```python:validate
+from z3 import Real, And
+zH, zM = Real("H"), Real("M")
+Parameter("H", units="hours", description="h")
+Parameter("M", units="hours", description="m")
+Axiom("A1", statement="0 <= M <= H", z3_expr=lambda: And(zM >= 0, zM <= zH), description="a")
+Property("P1", claim="H - M >= 0", z3_expr=lambda: zH - zM >= 0, given=["A1"], description="p",
+         lean_proof="linarith [A1.2]")
+Property("P2", claim="2 (H - M) >= 0", z3_expr=lambda: 2 * (zH - zM) >= 0, given=["P1"], description="p",
+         lean_proof="linarith [P1]")
+```
+'''
+
+
+class TestChains:
+    def test_property_may_build_on_property(self):
+        result = check_document(CHAIN)
+        assert result.passed, result.errors
+
+    def test_false_step_is_caught(self):
+        bad = CHAIN.replace("2 * (zH - zM) >= 0", "2 * (zH - zM) >= 1")
+        result = check_document(bad)
+        assert any('"P2" does NOT follow from P1' in e for e in result.errors)
+
+    def test_lean_statement_uses_property_as_hypothesis(self):
+        theorems, _ = build_theorems(check_document(CHAIN).registry)
+        p2 = next(t for t in theorems if t.name == "P2")
+        assert "(P1 : (H - M) ≥ 0)" in p2.statement
+
+    def test_weakest_premise_caps_the_level(self):
+        reg = check_document(CHAIN).registry
+        theorems, _ = build_theorems(reg)
+        # P2 Lean-proved, P1 only Z3-checked
+        cache = record_results({}, theorems, {"P2": ProofResult("proved")}, "tc")
+        levels = {v["name"]: v for v in verification_levels(reg, True, cache)}
+        assert levels["P1"]["level"] == "Z3-checked"
+        assert levels["P2"]["level"] == "Z3-checked"
+        assert "relies on P1 (Z3-checked)" in levels["P2"]["detail"]
+        cache = record_results(cache, theorems, {"P1": ProofResult("proved")}, "tc")
+        levels = {v["name"]: v for v in verification_levels(reg, True, cache)}
+        assert levels["P2"]["level"] == "Lean-proved"
+
+    def test_premise_must_be_declared_first(self):
+        doc = CHAIN.replace('given=["A1"], description="p",\n         lean_proof="linarith [A1.2]")',
+                            'given=["P2"], description="p")')
+        result = check_document(doc)
+        assert not result.passed and any("premises must be declared first" in e for e in result.errors)
+
+
+@needs_lean
+def test_real_lean_chain():
+    theorems, _ = build_theorems(check_document(CHAIN).registry)
+    results = run_lean(theorems, lean_env, timeout=600)
+    assert results["P1"].status == "proved", results["P1"].messages
+    assert results["P2"].status == "proved", results["P2"].messages

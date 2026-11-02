@@ -256,16 +256,17 @@ class Registry:
     ) -> None:
         """Register a derived property with axiom dependencies."""
         given_tuple = tuple(given)
-        for axiom_name in given_tuple:
-            if axiom_name not in self.symbols:
+        for premise in given_tuple:
+            if premise not in self.symbols:
                 raise ValueError(
-                    f'Property "{name}" references axiom "{axiom_name}" '
-                    f"which is not registered"
+                    f'Property "{name}" references axiom "{premise}" '
+                    f"which is not registered (premises must be declared first)"
                 )
-            if not isinstance(self.symbols[axiom_name], AxiomSymbol):
+            if not isinstance(self.symbols[premise], (AxiomSymbol, PropertySymbol)):
                 raise ValueError(
-                    f'Property "{name}" references "{axiom_name}" '
-                    f"which is not an Axiom (it is {type(self.symbols[axiom_name]).__name__})"
+                    f'Property "{name}" references "{premise}" '
+                    f"which is not an Axiom or Property "
+                    f"(it is {type(self.symbols[premise]).__name__})"
                 )
         sym = PropertySymbol(
             name=name, claim=claim, z3_expr=z3_expr,

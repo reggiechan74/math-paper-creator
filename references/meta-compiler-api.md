@@ -132,6 +132,18 @@ A later fixture that reassigns a name (a scenario or sensitivity section) does n
 
 Translation notes: Z3 `Real` → `ℝ`, `Int` → `ℤ`; `x**2` → `x ^ 2`; non-integer exponents become `Real.rpow`; division follows Lean's convention `x / 0 = 0`.
 
+## Writing constraints a solver can use
+
+`mpc solve` turns the paper's own lambdas into a Pyomo model: Variables become solver variables, and Parameters keep their fixture data. Keep constraints and objectives in this form:
+
+- Use plain arithmetic, `sum(...)`, and one comparison (`<=`, `>=`, `==`) per constraint. `all(...)` over a generator is fine, and each item becomes its own constraint.
+- Don't apply Python logic to Variables: no `if x > 0`, `max(x, y)`, `min(...)`, `abs(...)`, or `bool(...)`. Write `max(a, b) <= c` as two constraints.
+- A Variable's fixture values must respect its `bounds` and its `integer`/`binary` domain. `check` warns when they don't.
+
+Units are normalized, so `hr`, `hrs`, `hour` and `hours` are the same unit, and so are `$`, `usd` and `dollars`. `^2` and `*`/`/` combine units. Mixing minutes and hours in a sum or comparison is an error whose message gives the conversion factor. Convert explicitly with a parameter in units `"minutes/hours"`.
+
+`Property(given=[...])` may list earlier **Properties** as well as Axioms, so claims can build on proven claims. A Property's evidence level is capped by its weakest premise.
+
 ## Domains and the robustness sweep
 
 `mpc sweep <file>` re-evaluates every Expression, Objective and Constraint at random inputs the paper allows, and reports crashes and NaN/inf results. Scalar values that share units are sometimes set equal, which is where `x / (H - M)` breaks. It draws values according to each symbol's `domain` and each Variable's `bounds`, and drops samples that violate a declared axiom. Declare domains precisely so the sweep tests only meaningful inputs:

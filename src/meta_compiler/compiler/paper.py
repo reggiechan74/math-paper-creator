@@ -84,6 +84,10 @@ def _evidence(entry: dict) -> str:
             "approved": "; statement approved by the author",
             "changed": "; statement changed since the author approved it",
         }.get(entry.get("approval"), "; statement not yet approved by the author")
+        if entry.get("data_check") == "not_applicable":
+            text += "; its assumptions do not hold for this paper's example"
+        elif entry.get("data_check") == "refuted":
+            text += "; false for this paper's example"
     return text
 
 

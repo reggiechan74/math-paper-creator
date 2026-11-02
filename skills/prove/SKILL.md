@@ -124,6 +124,15 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" p
 
 Errors come with the line relative to the theorem and the goal state. Fix the proof and rerun. One run checks every selected claim at once, in a few seconds.
 
+### 4b. Does each Theorem apply to the paper's example?
+
+For hand-written Theorems, `prove` also instantiates every binder named like a parameter with its example value and has Lean decide the hypotheses and the conclusion there (`example data:` in the output, `data_check` in JSON):
+
+- **applies:** good.
+- **DOES NOT APPLY:** a hypothesis is false for the paper's own example (e.g. it assumes `0 < M` but the example has `M = 0`). The theorem may be proved, but it says nothing about the model as the paper uses it. Tell the user this is a **faithfulness problem**. Either the theorem needs weaker hypotheses (a statement change they must approve), or the example data should change. Don't decide for them.
+- **conclusion FALSE although its hypotheses hold:** the statement is false. Stop proving it and tell the user.
+- **could not be decided:** fine. Lean couldn't evaluate it numerically (functions, limits, quantifiers).
+
 ### 5. Finish
 
 Run `prove` once more without `--name`, so that `<paper>.proofs.json` records every claim against the current text. Then show the evidence summary:

@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review a draft math paper (.md, .model.md or .pdf) for mathematical coherence — five-layer assessment with interactive discussion, producing a .review.md findings file that /math-paper-creator:author can build from.
+description: Review a draft math paper (.md, .model.md or .pdf) for mathematical coherence — five-layer assessment (six for papers with formal claims) with interactive discussion, producing a .review.md findings file that /math-paper-creator:author can build from.
 argument-hint: "<path-to-file.md | .model.md | .pdf>"
 allowed-tools: Bash Read Write Edit Glob
 disable-model-invocation: true
@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 # Review a Math Paper
 
-Perform a layered mathematical coherence assessment of a draft paper. Walk through five review layers with the user, resolve every finding through discussion, and produce a findings file that can be fed to `/math-paper-creator:author` in a fresh session.
+Perform a layered mathematical coherence assessment of a draft paper. Walk through five review layers with the user (plus a sixth, formal statement faithfulness, for `.model.md` papers with Properties or Theorems), resolve every finding through discussion, and produce a findings file that can be fed to `/math-paper-creator:author` in a fresh session.
 
 **Arguments:** `$ARGUMENTS`
 
@@ -68,7 +68,7 @@ Write this file immediately. It will be updated as the review progresses.
 
 ## Step 4: Layered review
 
-Run five review layers in order. For each layer:
+Run the review layers in order: Layers 1–5 always, and Layer 6 when the paper is a `.model.md` with Properties or Theorems. For each layer:
 
 1. **Re-read the document** (or relevant sections) to ground the assessment in the actual text, not accumulated conversation context.
 2. **Assess** against the layer's criteria (see layer definitions below).
@@ -183,9 +183,36 @@ Common findings:
 - Abstract promises features the paper doesn't deliver
 - Prose makes claims not supported by the mathematical framework
 
+### Layer 6: Formal Statement Faithfulness (`.model.md` with Properties or Theorems)
+
+A machine-checked proof only matters if its formal statement says what the paper claims. Skip this layer if the paper has no `Property` or `Theorem` symbols.
+
+**Security first:** the commands below run the paper's Python. If the paper came from someone else and the user hasn't said they trust it, ask before running them.
+
+Gather the formal side:
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" lean "<absolute_file_path>"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" approvals --json "<absolute_file_path>"
+```
+
+If a `<basename>.proofs.json` exists, read its `results` and `data_checks` too.
+
+For every Property and Theorem, put the paper's prose claim (and its `$$...$$` math) next to the Lean statement, and check:
+
+- **Quantifiers and scope:** does the statement range over the same values as the paper? (For example, ∀ β ∈ ℝ when the paper means 0 < β ≤ 1.) Broader is acceptable if intended; narrower is a gap.
+- **Strictness:** `<` vs `≤`, `>` vs `≥`.
+- **Hypotheses:** are they exactly the paper's assumptions? Watch for extra hypotheses that make the claim easier, or that the paper never states.
+- **Domains:** ℝ vs ℕ vs ℤ. A natural-number statement can hide subtraction that truncates at zero.
+- **Division:** Lean defines `x / 0 = 0`. A statement with a division may "hold" only because of that convention.
+- **Example data:** a `data_checks` summary of `not_applicable` means a hypothesis is false for the paper's own example, so the theorem says nothing about it. `refuted` means the claim is false.
+- **Approval state:** `unapproved` or `changed` statements are findings in themselves. The author should approve or fix each one.
+
+Severity guide: a statement that doesn't match the prose claim is `[INCONSISTENCY]`. A theorem that doesn't apply to the paper's example, or that rests on unstated hypotheses, is `[GAP]`. A refuted claim is `[FATAL]`. Resolve each one as in the other layers. Statement changes the user decides on go into the findings file for `/math-paper-creator:author` to apply, and the user then re-approves the new statement.
+
 ## Step 5: Finalize findings
 
-After all five layers are complete:
+After all layers are complete (five, or six with Layer 6):
 
 1. Update the findings file frontmatter: set `status: complete`.
 2. Build the recommended section outline based on the identified template and all decisions made during the review. Update `outline` in frontmatter.
@@ -195,7 +222,7 @@ After all five layers are complete:
    - Recommended section outline
    - Key decisions made during review (bulleted list)
    - What can be salvaged from the original vs. what needs to be built from scratch
-4. Ensure Part 2 (Detailed Findings) contains all five layers' findings. Each finding entry must include:
+4. Ensure Part 2 (Detailed Findings) contains every layer's findings. Each finding entry must include:
    - The severity tag and finding description
    - The resolution (what was decided)
    - Relevant quotes or references from the original paper

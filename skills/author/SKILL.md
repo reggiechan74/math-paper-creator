@@ -351,6 +351,8 @@ Reference Z3 results in the four-tests conclusion frame:
 
    See `/math-paper-creator:check` step 4 for how to read it.
 
+   If the model has Variables and an Objective, offer `/math-paper-creator:solve` as well. It finds the optimal decision and shows how the example decision compares.
+
 5. Show a summary:
    - Total sections with math blocks
    - Symbol count by type (Sets, Parameters, Variables, Expressions, Constraints, Objectives)

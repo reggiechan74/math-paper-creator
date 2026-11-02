@@ -5,6 +5,26 @@ All notable changes to math-paper-creator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-11-01
+
+### Added
+- **Do Theorems apply to the paper?** `mpc prove` instantiates each hand-written Theorem's binders with the paper's example values and has Lean decide the hypotheses and conclusion (`norm_num`, claim and negation). Theorems whose hypotheses are false for the example are flagged in the prove output, report and compiled paper; a conclusion false at the example refutes the statement
+- **Review Layer 6: formal statement faithfulness** — for `.model.md` papers with Properties or Theorems, compares each Lean statement with the prose claim (quantifiers, strictness, hypotheses, domains, division, example data, approval state)
+- **Lean CI job** — builds the pinned Lean project from `lean/` and runs the Lean tests (fails if they are skipped)
+- **Units:** common spellings are normalized (`hr`/`hours`, `$`/`usd`/`dollars`, …), `^2` powers and spaces are supported, and mixing same-dimension units (minutes vs hours) reports the conversion factor
+- **Properties may build on Properties** (`given=` accepts earlier Properties); Z3 and Lean use them as premises, approvals lock them, and a Property's evidence level is capped by its weakest premise
+- **`mpc solve` / `/math-paper-creator:solve`** — solves optimization papers with Pyomo + HiGHS by reusing the paper's own lambdas (Variables bound to Pyomo variables; `all(...)` becomes one constraint per item). Reports the optimum, how the example decision compares, and binding constraints; untranslatable constraints and nonlinear models are reported clearly. `pyomo` and `highspy` are now installed with the plugin
+- `check` warns when a Variable's example values violate its bounds or integer/binary domain
+- `scripts/bump_lean.py` — maintainer tool to move the pinned Lean + Mathlib to a new release (regenerates the manifest with Lake)
+
+### Changed
+- Every entry point finds Python through `scripts/mpc` (`python3`, then `python`, then `py -3`; 3.10+), including the SessionStart and validation hooks — groundwork for Windows (untested there)
+- `plain-english` uses the user's local date instead of a fixed timezone
+- `lean/lake-manifest.json` is now in Lake's own format (contents unchanged)
+
+### Not done
+- An Aristotle fallback prover: as of aristotlelib 3.2.0 (2026-10-31) Harmonic states Aristotle no longer verifies Lean, so there is nothing to integrate
+
 ## [0.11.0] - 2026-11-01
 
 ### Added

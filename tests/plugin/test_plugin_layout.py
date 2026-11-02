@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILLS = sorted((ROOT / "skills").glob("*/SKILL.md"))
 EXPECTED_SKILLS = {
     "author", "onboard", "review", "check", "status",
-    "report", "paper", "compile", "plain-english", "prove",
+    "report", "paper", "compile", "plain-english", "prove", "solve",
 }
 INTERACTIVE_SKILLS = {"author", "onboard", "review", "compile", "plain-english", "prove"}
 

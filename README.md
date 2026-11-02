@@ -1,7 +1,7 @@
 # math-paper-creator
 
 <!-- badges-start -->
-![Version](https://img.shields.io/badge/version-0.11.0-blue)
+![Version](https://img.shields.io/badge/version-0.12.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-blueviolet)
 <!-- badges-end -->
@@ -117,6 +117,7 @@ Each workflow is a plugin skill, invoked as a slash command. The interactive wor
 | `/math-paper-creator:paper <file>` | Generate clean paper artifact (strips validation blocks) |
 | `/math-paper-creator:compile <file>` | Produce all artifacts: clean paper, standalone runner, validation report |
 | `/math-paper-creator:plain-english <file> [output]` | Generate a plain-English companion with explanation callouts for math-heavy sections |
+| `/math-paper-creator:solve <file>` | Find the optimal decision for an optimization paper, compare it with the example, and show the binding constraints |
 | `/math-paper-creator:prove <file> [claim ...]` | Machine-check Properties and Theorems in Lean 4 + Mathlib (opt-in, see [Lean proofs](#lean-proofs)) |
 
 ## Templates
@@ -174,6 +175,10 @@ Constraints and objectives are **tested**: they hold on the fixture data.
 
 The compiled `paper.md` carries these levels to readers. Each claim gets a short **Verification** note where the paper makes it (for example, "P1 E ≥ 0 — Proved (Lean)"), and a summary table with a legend ends the paper. Hand-written Lean theorems also say whether you approved their statement. Executive-depth papers get the summary only.
 
+### Solving the model
+
+For optimization papers, `mpc solve` (or `/math-paper-creator:solve`) finds the **optimal** decision with [Pyomo](https://www.pyomo.org/) and the [HiGHS](https://highs.dev/) solver. Both are installed automatically. It builds the model from the paper's own constraint and objective lambdas, so there is no second copy of the model to keep in sync. It reports the optimum, how the paper's example decision compares ("68% of optimal"), and which constraints bind. HiGHS covers linear and mixed-integer models. For nonlinear models, use `--solver ipopt` if Ipopt is installed.
+
 ### Robustness sweep
 
 `check` evaluates the model at one point: the fixture data. `mpc sweep` (run by the `check`, `author` and `compile` workflows) re-evaluates every formula at random inputs the paper allows: within each symbol's `domain`, each Variable's `bounds`, and the declared axioms. Quantities with the same units are sometimes set equal, because that is where a formula like `x / (H - M)` divides by zero. It reports every crash or NaN/inf with a concrete failing input, so a formula that only works at the example values gets caught. Runs are reproducible (`--seed`).
@@ -197,6 +202,18 @@ Lean support is **opt-in** because it needs Lean 4 and Mathlib, about 11 GB down
 - `compile` also writes `Proofs.lean` with every claim's Lean statement and proof.
 
 To use your own Lean install instead, set `MPC_LEAN_PROJECT` to a Lake project that requires Mathlib.
+
+### Upgrading Lean and Mathlib (maintainers)
+
+The plugin pins one Lean toolchain and the matching Mathlib release in `lean/`. To move both to a new release, run `python3 scripts/bump_lean.py v4.37.0`, which regenerates the manifest with Lake. Then run the Lean tests and release a new plugin version. For users:
+
+- Their next session start rebuilds the Lean project in the background.
+- Every recorded Lean result becomes stale, because results are tied to the toolchain. They need to run `/math-paper-creator:prove` again. Proofs that use renamed Mathlib lemmas need fixing.
+- Statement approvals stay valid, because they pin statements, not toolchains.
+
+### Does a theorem apply to the paper?
+
+For hand-written Theorems, `prove` also substitutes the paper's example values for every variable named like a parameter, and has Lean decide the hypotheses and the conclusion there. A theorem whose hypotheses are false for the paper's own example (for instance, it assumes `0 < M` while the example has `M = 0`) may be proved, but it says nothing about the model. The prove output, the report and the compiled paper all flag it. A conclusion that is false at the example refutes the statement before anyone tries to prove it.
 
 ### Approving statements
 
@@ -261,6 +278,10 @@ That's all you need to install yourself. On the first session after install, the
 - **z3-solver** (>=4.12) — axiom verification
 
 The environment survives plugin updates and is rebuilt only when `requirements.txt` changes. Setup output goes to `setup.log` in the same data directory. Until setup finishes, the plugin uses `python3` from your `PATH`; if numpy isn't available there, live validation is skipped with a notice instead of failing.
+
+## Windows
+
+Untested. The hooks run through `bash`, which on Windows is the Git Bash that Claude Code uses, and they find Python as `python3`, `python` or `py -3` (3.10 or newer). Automatic Lean setup isn't supported on Windows. Install [elan](https://lean-lang.org/install/) yourself and set `MPC_LEAN_PROJECT` to a Lake project that requires Mathlib.
 
 ## License
 

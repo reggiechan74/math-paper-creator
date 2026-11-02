@@ -201,7 +201,7 @@ Processed: sections <X>-<Y> of <N>
 
 After all sections are processed:
 
-1. **Get today's date** via `TZ='America/New_York' date '+%Y-%m-%d'`
+1. **Get today's date** via `date '+%Y-%m-%d'` (the user's local date)
 2. **Build YAML frontmatter** for the output file:
    - Copy relevant fields from source frontmatter
    - Add `companion_to:` referencing the source file path

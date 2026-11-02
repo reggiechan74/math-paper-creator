@@ -311,6 +311,9 @@ def execute_blocks(
                 except Exception as e:
                     errors.append(f"Error in objective \"{sym.name}\": {e}")
 
+        # Step 4-: example decisions must respect each Variable's bounds/domain
+        warnings.extend(_check_variable_bounds(registry, contexts, symbol_block))
+
         # Step 4a: scenario re-checks — constraints registered before a
         # fixture that redefines data are re-evaluated under the new data.
         for point in timeline.override_points:
@@ -348,11 +351,12 @@ def execute_blocks(
             # Property implication checks
             for name, sym in registry.symbols.items():
                 if isinstance(sym, PropertySymbol):
+                    # Premises: axioms and earlier properties
                     given_exprs = [
-                        registry.symbols[ax_name].z3_expr
-                        for ax_name in sym.given
-                        if isinstance(registry.symbols.get(ax_name), AxiomSymbol)
-                        and registry.symbols[ax_name].z3_expr is not None
+                        registry.symbols[premise].z3_expr
+                        for premise in sym.given
+                        if isinstance(registry.symbols.get(premise), (AxiomSymbol, PropertySymbol))
+                        and registry.symbols[premise].z3_expr is not None
                     ]
                     if given_exprs:
                         prop_result = check_property(given_exprs, sym.z3_expr)
@@ -421,6 +425,38 @@ def _falsify_undecided(sym, given_exprs, z3_error, errors, warnings) -> None:
         )
     else:
         errors.append(f'Property "{sym.name}" verification error: {z3_error}')
+
+
+def _check_variable_bounds(reg: Registry, contexts, symbol_block) -> list[str]:
+    """Warn when a Variable's fixture value lies outside its bounds or domain."""
+    out = []
+    for name, sym in reg.symbols.items():
+        if not isinstance(sym, VariableSymbol):
+            continue
+        ctx = contexts.get(symbol_block.get(name), {})
+        if name not in ctx:
+            continue
+        data = ctx[name]
+        items = data.items() if isinstance(data, dict) else [(None, data)]
+        lo, hi = sym.bounds if sym.bounds else (None, None)
+        domain = (sym.domain or "").lower()
+        for key, value in items:
+            if not _is_numeric(value):
+                continue
+            where = f"[{key}]" if key is not None else ""
+            problem = None
+            if lo is not None and value < lo:
+                problem = f"below its lower bound {lo}"
+            elif hi is not None and value > hi:
+                problem = f"above its upper bound {hi}"
+            elif domain in ("integer", "binary") and float(value) != int(value):
+                problem = f"not an integer (domain {domain})"
+            elif domain == "binary" and value not in (0, 1):
+                problem = "not 0 or 1 (domain binary)"
+            if problem:
+                out.append(f'Variable "{name}"{where} = {value!r} in the example is {problem}')
+                break  # one warning per variable is enough
+    return out
 
 
 def _data_values(reg: Registry, ctx: dict[str, Any]) -> dict[str, Any]:

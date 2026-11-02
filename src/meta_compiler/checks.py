@@ -212,8 +212,12 @@ def _check_unit_boundaries(registry: "Registry", errors: list[str]):
     and division combine units algebraically.
     """
     from meta_compiler.units import (
-        parse_unit, units_compatible, units_multiply, units_divide,
+        conversion_hint, parse_unit, units_compatible, units_multiply, units_divide,
     )
+
+    def _hint(a, b) -> str:
+        hint = conversion_hint(a, b)
+        return f" — {hint}" if hint else ""
 
     dimensionless = parse_unit("dimensionless")
 
@@ -270,7 +274,7 @@ def _check_unit_boundaries(registry: "Registry", errors: list[str]):
                             local_errors.append(
                                 f'Constraint "{constraint_name}": '
                                 f'incompatible units in +/- : '
-                                f'"{left}" vs "{right}"'
+                                f'"{left}" vs "{right}"{_hint(left, right)}'
                             )
                     return left if left != dimensionless else right
                 if isinstance(node.op, ast.Mult):
@@ -290,6 +294,7 @@ def _check_unit_boundaries(registry: "Registry", errors: list[str]):
                                 f'Constraint "{constraint_name}": '
                                 f'incompatible units in comparison: '
                                 f'"{left_unit}" vs "{right_unit}"'
+                                f'{_hint(left_unit, right_unit)}'
                             )
                     left_unit = right_unit
                 return dimensionless

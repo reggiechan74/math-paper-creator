@@ -34,3 +34,41 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code
       - name: Validate plugin and marketplace manifests
         run: claude plugin validate --strict .
+
+  lean:
+    # Runs the tests that need a real Lean + Mathlib (skipped in `test`).
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -e ".[dev]"
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Cache Mathlib downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mathlib
+          key: mathlib-${{ hashFiles('lean/lake-manifest.json', 'lean/lean-toolchain') }}
+      - name: Build the plugin's Lean project from the template
+        run: |
+          PROJECT="$RUNNER_TEMP/lean-project"
+          mkdir -p "$PROJECT"
+          cp lean/lakefile.toml lean/lean-toolchain lean/lake-manifest.json "$PROJECT/"
+          cd "$PROJECT"
+          lake exe cache get
+          printf 'import Mathlib\nexample (x : ℝ) : x ^ 2 ≥ 0 := by positivity\n' > Smoke.lean
+          lake env lean Smoke.lean || { lake exe cache unpack && lake env lean Smoke.lean; }
+          echo "MPC_LEAN_PROJECT=$PROJECT" >> "$GITHUB_ENV"
+      - name: Run Lean tests (and fail if they were skipped)
+        shell: bash
+        run: |
+          python -m pytest -q tests/test_lean.py tests/plugin/test_guard.py -rs | tee lean.log
+          ! grep -q "set MPC_LEAN_PROJECT" lean.log
