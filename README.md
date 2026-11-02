@@ -1,7 +1,7 @@
 # math-paper-creator
 
 <!-- badges-start -->
-![Version](https://img.shields.io/badge/version-0.10.0-blue)
+![Version](https://img.shields.io/badge/version-0.11.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-blueviolet)
 <!-- badges-end -->
@@ -70,7 +70,7 @@ When the paper is complete, `/math-paper-creator:compile` produces three artifac
 
 | Artifact | What it is |
 |----------|------------|
-| **`paper.md`** | Clean publishable paper — all validation blocks stripped, only prose and math remain |
+| **`paper.md`** | Clean publishable paper. Validation blocks are stripped; each claim keeps a short note of its evidence where it is made, and a **Verification** summary table is appended (`--no-verification` omits both) |
 | **`runner.py`** | Standalone Python script with all fixture data and validation logic inlined — runs without the paper |
 | **`report.txt`** | Validation report: symbol table, dependency graph, coverage metrics, verification levels, test results |
 | **`Proofs.lean`** | Lean 4 statements and proofs of the paper's Properties and Theorems (when it has any) |
@@ -144,6 +144,21 @@ When installed, the plugin automatically validates `.model.md` files every time 
 
 The hook runs in **authoring mode**: symbol conflicts, undefined references, index mismatches, and dimensional errors are hard blocks. Orphan symbols produce warnings only (the symbol may be used in a later section).
 
+## Security: papers are programs
+
+A `.model.md` file contains Python (`python:fixture`, `python:validate`, `python:results` blocks), and the plugin **runs** it:
+
+- after every edit Claude makes to a `.model.md` (live validation),
+- in `check`, `status`, `report`, `paper`, `compile` and `prove`, and in the generated `runner.py`.
+
+Treat a paper from someone else like any script from someone else. Before working with one:
+
+1. Turn off **Validate papers automatically** (`/plugin` → math-paper-creator → configure, or `echo '{"live_validation": "false"}' | claude plugin configure math-paper-creator@math-paper-creator --values-stdin`). Claude can then edit the paper without the hook running it.
+2. Read its code blocks, or have Claude review them, before running `check` on it. The skills that Claude may run on its own ask before running a paper that came from someone else.
+3. Run it inside [Claude Code's sandbox](https://code.claude.com/docs/en/sandboxing) or a container if you're unsure.
+
+With live validation off, the guard that protects approved statements can't run the paper to compare statements, so it asks you to confirm each edit to that paper instead.
+
 ## Levels of Evidence
 
 Every claim in a paper carries one of four levels of evidence, shown in the report's **Verification Levels** section:
@@ -156,6 +171,12 @@ Every claim in a paper carries one of four levels of evidence, shown in the repo
 | **Lean-proved** | A machine-checked proof in Lean 4 + Mathlib that depends only on Lean's standard axioms | `prove` |
 
 Constraints and objectives are **tested**: they hold on the fixture data.
+
+The compiled `paper.md` carries these levels to readers. Each claim gets a short **Verification** note where the paper makes it (for example, "P1 E ≥ 0 — Proved (Lean)"), and a summary table with a legend ends the paper. Hand-written Lean theorems also say whether you approved their statement. Executive-depth papers get the summary only.
+
+### Robustness sweep
+
+`check` evaluates the model at one point: the fixture data. `mpc sweep` (run by the `check`, `author` and `compile` workflows) re-evaluates every formula at random inputs the paper allows: within each symbol's `domain`, each Variable's `bounds`, and the declared axioms. Quantities with the same units are sometimes set equal, because that is where a formula like `x / (H - M)` divides by zero. It reports every crash or NaN/inf with a concrete failing input, so a formula that only works at the example values gets caught. Runs are reproducible (`--seed`).
 
 ### Scenarios
 

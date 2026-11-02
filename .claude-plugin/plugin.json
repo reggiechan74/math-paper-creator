@@ -1,7 +1,7 @@
 {
   "name": "math-paper-creator",
   "displayName": "Math Paper Creator",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Author validated math papers interactively. Formalize concepts into prose, LaTeX math, and executable Python validation — each section checked before the next begins.",
   "author": {
     "name": "Reggie Chan"
@@ -17,6 +17,12 @@
     "optimization"
   ],
   "userConfig": {
+    "live_validation": {
+      "type": "boolean",
+      "title": "Validate papers automatically",
+      "description": "Run a .model.md's Python after every edit Claude makes to it. A .model.md is a program: turn this off before working with papers from sources you don't trust.",
+      "default": true
+    },
     "enable_lean": {
       "type": "boolean",
       "title": "Enable Lean proofs",

@@ -5,6 +5,14 @@ All notable changes to math-paper-creator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-11-01
+
+### Added
+- **`live_validation` option (security).** A `.model.md` is a program; the PostToolUse hook ran it after every edit. The option (on by default) turns that off for papers from untrusted sources; the approval guard then asks before edits instead of running the paper. Model-invocable skills (`check`, `status`, `report`, `paper`, `compile`) now ask before running a paper that came from someone else. README "Security: papers are programs"
+- **`mpc sweep` (random testing).** Re-evaluates every Expression, Objective and Constraint at random inputs within each symbol's domain, each Variable's bounds and the declared axioms — including same-unit values set equal, where `x / (H - M)` breaks — and reports crashes and NaN/inf with a failing example. Constraint pass rates are informational. Seeded and reproducible. Used by the check, author and compile workflows
+- **Random counterexample search for undecided Properties.** When Z3 answers "unknown", `check` searches for a counterexample: found → error; none → warning recommending a Lean proof
+- **Evidence levels in the compiled paper.** `paper.md` replaces each claim-declaring validation block with a short Verification note (assumption / Verified (Z3) / Proved (Lean), and statement-approval state for hand-written theorems) and appends a summary table with a legend; executive depth gets the summary only; `--no-verification` on `paper`/`compile` omits both
+
 ## [0.10.0] - 2026-11-01
 
 ### Added

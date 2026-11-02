@@ -25,6 +25,14 @@ fi
 # Read stdin before the heredoc consumes it
 HOOK_INPUT="$(cat)"
 
+# The plugin's `live_validation` option: a .model.md is a program, so users
+# can stop the hook from running papers they don't trust.
+case "$(printf '%s' "${CLAUDE_PLUGIN_OPTION_LIVE_VALIDATION:-true}" | tr '[:upper:]' '[:lower:]')" in
+  false|0|no|off)
+    exit 0
+    ;;
+esac
+
 # Delegate everything to Python for safe JSON handling
 HOOK_INPUT="$HOOK_INPUT" exec "$PY" - "$PROJECT_DIR" <<'PYTHON_SCRIPT'
 import json

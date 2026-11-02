@@ -11,6 +11,8 @@ Display the current symbol table, dependency status, and coverage metric for a `
 
 **Arguments:** `$ARGUMENTS`
 
+**Security:** this runs the paper's Python code. A `.model.md` is a program. If the paper came from someone else (downloaded, emailed, from a repository the user doesn't control) and the user hasn't said they trust it, ask before running it. Suggest reading its `python:fixture` and `python:validate` blocks first, or running it in a sandbox.
+
 ## Steps
 
 1. **Locate the file:** Use the path from the arguments. If no path is given, search with Glob for `**/*.model.md` and ask the user which one if multiple are found. Resolve the path to an absolute path (relative paths are relative to the user's working directory).

@@ -212,3 +212,76 @@ def check_axiom_against_data(
             status="error", error=str(e),
             duration_s=time.monotonic() - start,
         )
+
+
+def falsify_property(
+    axiom_exprs: list[object],
+    property_expr: object,
+    *,
+    seeds: dict | None = None,
+    samples: int = 2000,
+    seed: int = 0,
+) -> VerificationResult:
+    """Search for a counterexample by random assignment, when Z3 can't decide.
+
+    Every constant gets a concrete value: values near its fixture value (if
+    linked by name in ``seeds``), small integers and fractions, and wide
+    log-uniform magnitudes of both signs. An assignment is a counterexample
+    when all axioms hold and the property is false. Finding none is not a
+    proof; the status is then "not_found" and ``error`` says how much was
+    searched.
+    """
+    import math
+    import random
+    from fractions import Fraction
+
+    try:
+        import z3
+        from z3.z3util import get_vars
+    except ImportError:
+        return VerificationResult(status="skipped", error="z3-solver not installed")
+
+    start = time.monotonic()
+    rng = random.Random(seed)
+    seeds = seeds or {}
+    try:
+        axioms = [f() for f in axiom_exprs]
+        prop = property_expr()
+        consts = {c.decl().name(): c for e in [*axioms, prop] for c in get_vars(e)}
+    except Exception as e:
+        return VerificationResult(status="error", error=str(e))
+
+    def draw(name, const):
+        is_int = const.sort() == z3.IntSort()
+        base = seeds.get(name)
+        roll = rng.random()
+        if base is not None and roll < 0.3:
+            value = float(base) * math.exp(rng.uniform(-1.5, 1.5))
+        elif roll < 0.6:
+            value = float(Fraction(rng.randint(-12, 12), rng.choice([1, 1, 2, 3, 4, 10])))
+        else:
+            value = rng.choice([-1, 1]) * math.exp(rng.uniform(-6, 6))
+        if is_int:
+            return z3.IntVal(int(round(value)))
+        frac = Fraction(value).limit_denominator(10**6)
+        return z3.RealVal(f"{frac.numerator}/{frac.denominator}")
+
+    tried = admissible = 0
+    for _ in range(samples):
+        tried += 1
+        subs = [(c, draw(n, c)) for n, c in consts.items()]
+        try:
+            if not all(z3.is_true(z3.simplify(z3.substitute(a, *subs))) for a in axioms):
+                continue
+            admissible += 1
+            if z3.is_false(z3.simplify(z3.substitute(prop, *subs))):
+                ce = {str(c): str(v) for c, v in subs}
+                return VerificationResult(status="failed", counterexample=ce,
+                                          duration_s=time.monotonic() - start)
+        except Exception:
+            continue
+    return VerificationResult(
+        status="not_found",
+        error=f"{admissible} admissible random assignments (of {tried} tried) were checked",
+        duration_s=time.monotonic() - start,
+    )

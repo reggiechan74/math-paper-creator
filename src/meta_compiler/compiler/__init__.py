@@ -24,6 +24,7 @@ def compile_document(
     strict: bool = True,
     skip_validation: bool = False,
     proofs: dict | None = None,
+    annotate: bool = True,
 ) -> dict:
     """Full compilation pipeline: validate, then generate artifacts."""
     blocks = parse_document(source)
@@ -39,9 +40,10 @@ def compile_document(
             + "\n".join(f"  - {e}" for e in result.errors)
         )
 
-    paper = generate_paper(blocks, depth=depth)
     report = generate_report(blocks, registry=result.registry, test_result=result,
                              proofs=proofs)
+    paper = generate_paper(blocks, depth=depth,
+                           verification=report.verification if annotate else None)
 
     from meta_compiler.lean import build_theorems, render_file
 

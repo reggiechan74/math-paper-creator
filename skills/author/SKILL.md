@@ -343,7 +343,15 @@ Reference Z3 results in the four-tests conclusion frame:
 - Test 1 (Non-contradiction): cite axiom consistency check
 - Test 3 (Comparative statics): cite monotonicity verification if applicable
 
-4. Show a summary:
+4. Run the robustness sweep, and resolve any defects with the user before compiling:
+
+   ```bash
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" sweep "<absolute_file_path>"
+   ```
+
+   See `/math-paper-creator:check` step 4 for how to read it.
+
+5. Show a summary:
    - Total sections with math blocks
    - Symbol count by type (Sets, Parameters, Variables, Expressions, Constraints, Objectives)
    - Any warnings (orphan symbols, etc.)
@@ -352,10 +360,10 @@ Reference Z3 results in the four-tests conclusion frame:
      - **Required items:** Show pass/fail status for each. Failed items are warnings — the user should address them but they don't block compilation.
      - **Advisory items:** Show any that match as informational notes.
 
-5. Ask the user:
+6. Ask the user:
    > "Would you like me to compile now? This produces a clean paper (prose + math only), a standalone runner.py (all validation logic as a self-contained script), and a validation report. Or you can do this later with `/math-paper-creator:compile`."
 
-6. If the user wants to compile, run:
+7. If the user wants to compile, run:
    ```bash
    CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/mpc" compile "<absolute_file_path>" --output "<absolute_output_dir>"
    ```

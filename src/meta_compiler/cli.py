@@ -12,6 +12,7 @@ Usage:
     python -m meta_compiler.cli prove <file.model.md> [--name NAME] [--json]
     python -m meta_compiler.cli approve <file.model.md> --name NAME [--revoke]
     python -m meta_compiler.cli approvals <file.model.md> [--json]
+    python -m meta_compiler.cli sweep <file.model.md> [--samples N] [--seed S] [--json]
 """
 
 from __future__ import annotations
@@ -48,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
         "--skip-validation", action="store_true",
         help="Generate paper without running validation",
     )
+    paper_parser.add_argument(
+        "--no-verification", action="store_true",
+        help="Omit the per-claim verification notes and summary",
+    )
 
     # report
     report_parser = subparsers.add_parser("report", help="Generate validation report")
@@ -68,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument(
         "--no-strict", action="store_true",
         help="Treat orphan symbols as warnings instead of errors",
+    )
+    compile_parser.add_argument(
+        "--no-verification", action="store_true",
+        help="Omit the per-claim verification notes and summary from paper.md",
     )
 
     # reconcile
@@ -135,6 +144,18 @@ def main(argv: list[str] | None = None) -> int:
     approvals_parser.add_argument("--json", action="store_true",
                                   help="Emit machine-readable JSON")
 
+    # sweep
+    sweep_parser = subparsers.add_parser(
+        "sweep", help="Random testing: evaluate the model across inputs its domains allow"
+    )
+    sweep_parser.add_argument("file", type=Path, help="Path to .model.md file")
+    sweep_parser.add_argument("--samples", type=int, default=200,
+                              help="Random inputs to try (default 200)")
+    sweep_parser.add_argument("--seed", type=int, default=0,
+                              help="Random seed, for reproducible runs (default 0)")
+    sweep_parser.add_argument("--json", action="store_true",
+                              help="Emit machine-readable JSON")
+
     args = parser.parse_args(argv)
     source = args.file.read_text()
 
@@ -143,13 +164,16 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "paper":
         return _cmd_paper(source, depth=args.depth, output=args.output,
                           strict=not args.no_strict,
-                          skip_validation=args.skip_validation)
+                          skip_validation=args.skip_validation,
+                          proofs=_load_sidecar(args.file),
+                          annotate=not args.no_verification)
     elif args.command == "report":
         return _cmd_report(source, output=args.output, strict=not args.no_strict,
                            proofs=_load_sidecar(args.file))
     elif args.command == "compile":
         return _cmd_compile(source, output=args.output, depth=args.depth,
-                            strict=not args.no_strict, proofs=_load_sidecar(args.file))
+                            strict=not args.no_strict, proofs=_load_sidecar(args.file),
+                            annotate=not args.no_verification)
     elif args.command == "reconcile":
         return _cmd_reconcile(source, section=args.section)
     elif args.command == "verify":
@@ -163,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_approve(source, path=args.file, names=args.name, revoke=args.revoke)
     elif args.command == "approvals":
         return _cmd_approvals(source, path=args.file, as_json=args.json)
+    elif args.command == "sweep":
+        return _cmd_sweep(source, samples=args.samples, seed=args.seed, as_json=args.json)
     elif args.command == "prove":
         return _cmd_prove(source, path=args.file, names=args.name,
                           timeout=args.timeout, as_json=args.json)
@@ -198,12 +224,14 @@ def _cmd_check(source: str, *, strict: bool = False, path: Path | None = None) -
 
 
 def _cmd_paper(source: str, *, depth: str | None, output: Path | None,
-               strict: bool = True, skip_validation: bool = False) -> int:
+               strict: bool = True, skip_validation: bool = False,
+               proofs: dict | None = None, annotate: bool = True) -> int:
     from meta_compiler.compiler import compile_document
 
     try:
         artifacts = compile_document(source, depth=depth, strict=strict,
-                                     skip_validation=skip_validation)
+                                     skip_validation=skip_validation,
+                                     proofs=proofs, annotate=annotate)
     except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -243,11 +271,13 @@ def _cmd_report(source: str, *, output: Path | None, strict: bool = True,
 
 
 def _cmd_compile(source: str, *, output: Path, depth: str | None,
-                 strict: bool = True, proofs: dict | None = None) -> int:
+                 strict: bool = True, proofs: dict | None = None,
+                 annotate: bool = True) -> int:
     from meta_compiler.compiler import compile_document
 
     try:
-        artifacts = compile_document(source, depth=depth, strict=strict, proofs=proofs)
+        artifacts = compile_document(source, depth=depth, strict=strict, proofs=proofs,
+                                     annotate=annotate)
     except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -541,6 +571,22 @@ def _cmd_approvals(source: str, *, path: Path, as_json: bool) -> int:
         for row in rows:
             print(f"{row['status']:<11} {row['name']}")
     return 1 if any(r["status"] in ("changed", "removed") for r in rows) else 0
+
+
+def _cmd_sweep(source: str, *, samples: int, seed: int, as_json: bool) -> int:
+    import json
+
+    from meta_compiler.compiler.parser import parse_document
+    from meta_compiler.sweep import format_report, run_sweep
+
+    report = run_sweep(parse_document(source), samples=samples, seed=seed)
+    if as_json:
+        print(json.dumps(report.to_json(), indent=2, default=str))
+    else:
+        print(format_report(report))
+    if report.error:
+        return 1
+    return 0 if report.ok else 2
 
 
 if __name__ == "__main__":

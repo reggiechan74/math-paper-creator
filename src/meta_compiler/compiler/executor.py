@@ -63,6 +63,9 @@ class ExecutionResult:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     registry: Registry | None = None
+    # For tools that re-evaluate the model on other data (mpc sweep):
+    namespace: dict | None = field(default=None, repr=False)
+    base_data: dict | None = field(default=None, repr=False)
 
 
 # ── Fixture timeline ────────────────────────────────────────────────────────
@@ -362,9 +365,8 @@ def execute_blocks(
                                 f'{" — counterexample: " + ce_str if ce_str else ""}'
                             )
                         elif prop_result.status == "error":
-                            errors.append(
-                                f'Property "{sym.name}" verification error: {prop_result.error}'
-                            )
+                            _falsify_undecided(sym, given_exprs, prop_result.error,
+                                               errors, warnings)
 
             # Step 4c: the fixture data must satisfy the axioms
             if has_fixtures:
@@ -385,17 +387,40 @@ def execute_blocks(
     from meta_compiler.linkage import check_latex_linkage
     warnings.extend(check_latex_linkage(blocks, registry))
 
-    # Leave the registry holding the base data for downstream consumers
-    # (reports, reconciliation checks).
+    # Leave the registry and namespace holding the base data for downstream
+    # consumers (reports, reconciliation checks, sweeps).
     if has_fixtures:
-        registry.data_store = dict(timeline.first_values)
+        _bind_context(registry, ns, dict(timeline.first_values))
 
     return ExecutionResult(
         passed=len(errors) == 0,
         errors=errors,
         warnings=warnings,
         registry=registry,
+        namespace=ns,
+        base_data=dict(timeline.first_values) if has_fixtures else {},
     )
+
+
+def _falsify_undecided(sym, given_exprs, z3_error, errors, warnings) -> None:
+    """Z3 couldn't decide a Property: look for a counterexample by sampling."""
+    from meta_compiler.verification import falsify_property
+
+    seeds = _data_values(registry, registry.data_store)
+    found = falsify_property(given_exprs, sym.z3_expr, seeds=seeds)
+    if found.status == "failed":
+        ce = ", ".join(f"{k}={v}" for k, v in (found.counterexample or {}).items())
+        errors.append(
+            f'Property "{sym.name}" does NOT follow from {", ".join(sym.given)} '
+            f"— counterexample found by random search: {ce}"
+        )
+    elif found.status == "not_found":
+        warnings.append(
+            f'Property "{sym.name}": Z3 could not decide it ({z3_error}); '
+            f"{found.error} without finding a counterexample. Consider a Lean proof."
+        )
+    else:
+        errors.append(f'Property "{sym.name}" verification error: {z3_error}')
 
 
 def _data_values(reg: Registry, ctx: dict[str, Any]) -> dict[str, Any]:

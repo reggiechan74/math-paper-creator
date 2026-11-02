@@ -580,7 +580,10 @@ def verification_levels(registry: "Registry", passed: bool, cache: dict | None) 
             }.get(approvals.get(name), "hand-written statement, NOT yet approved by the author")
             detail = "; ".join(x for x in (detail, note) if x)
             out.append({"name": name, "kind": "Theorem", "claim": sym.claim,
-                        "level": level or "stated", "detail": detail})
+                        "level": level or "stated", "detail": detail,
+                        "approval": approvals.get(name, "unapproved")})
+    for entry in out:
+        entry["line"] = registry.defined_at.get(entry["name"])
     return out
 
 

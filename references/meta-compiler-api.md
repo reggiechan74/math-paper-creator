@@ -132,6 +132,21 @@ A later fixture that reassigns a name (a scenario or sensitivity section) does n
 
 Translation notes: Z3 `Real` → `ℝ`, `Int` → `ℤ`; `x**2` → `x ^ 2`; non-integer exponents become `Real.rpow`; division follows Lean's convention `x / 0 = 0`.
 
+## Domains and the robustness sweep
+
+`mpc sweep <file>` re-evaluates every Expression, Objective and Constraint at random inputs the paper allows, and reports crashes and NaN/inf results. Scalar values that share units are sometimes set equal, which is where `x / (H - M)` breaks. It draws values according to each symbol's `domain` and each Variable's `bounds`, and drops samples that violate a declared axiom. Declare domains precisely so the sweep tests only meaningful inputs:
+
+| `domain=` contains | Values drawn |
+|---|---|
+| `nonneg` | ≥ 0 |
+| `pos` (e.g. `positive`) | > 0 |
+| `int` | integers |
+| `binary` | 0 or 1 |
+| `prob`, `unit`, `fraction` | [0, 1] |
+| anything else (`real`) | any real number, negatives included |
+
+When Z3 can't decide a Property (it answers "unknown", typically for real exponents), `check` searches randomly for a counterexample. If it finds one, that's an error. If it finds none, it reports a warning that recommends a Lean proof.
+
 ## Symbol table
 
 `mpc symbols --json <file>` prints every registered symbol with its kind, index, units, bounds, `latex`, and defining line. Use it instead of tracking symbol names by hand.

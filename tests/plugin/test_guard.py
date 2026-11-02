@@ -149,3 +149,17 @@ def test_report_shows_approval_state(paper):
     reg = check_document(paper.read_text()).registry
     levels = {v["name"]: v for v in verification_levels(reg, True, _load_sidecar(paper))}
     assert "approved by the author" in levels["T1"]["detail"]
+
+
+def test_live_validation_off_asks_instead_of_running(paper):
+    proc = subprocess.run(
+        [sys.executable, str(GUARD)],
+        input=json.dumps({"tool_name": "Edit", "tool_input": {
+            "file_path": str(paper), "old_string": "# Model", "new_string": "# M"}}),
+        capture_output=True, text=True, timeout=60,
+        env=dict(os.environ, PYTHONPATH=str(ROOT / "src"),
+                 CLAUDE_PLUGIN_OPTION_LIVE_VALIDATION="false"),
+    )
+    out = json.loads(proc.stdout)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "ask"
+    assert "automatic validation is off" in out["permissionDecisionReason"]

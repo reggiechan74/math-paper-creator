@@ -187,3 +187,29 @@ class TestHookEdgeCases:
         assert result.returncode == 0
         output = json.loads(result.stdout)  # Must be valid JSON
         assert output["decision"] == "block"
+
+
+class TestLiveValidationOption:
+    """The `live_validation` userConfig option stops the hook running papers."""
+
+    def _run(self, doc, value):
+        hook_input = json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(doc)}})
+        return subprocess.run(
+            ["bash", str(SCRIPT)], input=hook_input, capture_output=True, text=True,
+            env=dict(os.environ, CLAUDE_PLUGIN_OPTION_LIVE_VALIDATION=value), timeout=30,
+        )
+
+    def test_off_skips_execution(self, tmp_path):
+        marker = tmp_path / "ran"
+        doc = tmp_path / "evil.model.md"
+        doc.write_text(f'```python:fixture\nopen({str(marker)!r}, "w").write("x")\n```\n')
+        for value in ("false", "False", "0", "off"):
+            result = self._run(doc, value)
+            assert result.returncode == 0 and result.stdout == ""
+            assert not marker.exists(), f"paper ran with live_validation={value}"
+
+    def test_on_by_default(self, tmp_path):
+        doc = tmp_path / "bad.model.md"
+        doc.write_text('```python:validate\nParameter("x", index=["NOPE"], description="d")\n```\n')
+        result = self._run(doc, "true")
+        assert json.loads(result.stdout)["decision"] == "block"

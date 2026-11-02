@@ -9,6 +9,7 @@ def generate_paper(
     blocks: list[Block],
     *,
     depth: str | None = None,
+    verification: list[dict] | None = None,
 ) -> str:
     """Generate a clean paper from parsed blocks.
 
@@ -16,6 +17,11 @@ def generate_paper(
         blocks: Parsed document blocks.
         depth: Optional depth filter ('executive', 'technical', 'appendix').
                If None, include all content.
+        verification: Per-claim evidence entries (from
+            ``meta_compiler.lean.verification_levels``). When given, each
+            validation block that declared claims is replaced by a short
+            note of their evidence, and a summary section is appended.
+            Executive-depth papers get the summary only.
 
     Returns:
         Markdown string with validation blocks stripped.
@@ -25,6 +31,12 @@ def generate_paper(
     if depth is not None:
         blocks = _filter_by_depth(blocks, depth)
 
+    by_line: dict[int, list[dict]] = {}
+    for entry in verification or []:
+        if entry.get("line") is not None:
+            by_line.setdefault(entry["line"], []).append(entry)
+    inline = bool(by_line) and depth != "executive"
+
     for block in blocks:
         if isinstance(block, ProseBlock):
             parts.append(block.content)
@@ -33,9 +45,70 @@ def generate_paper(
             parts.append("")
         elif isinstance(block, ResultsBlock) and block.output:
             parts.append(block.output.rstrip())
-        # ValidationBlocks and FixtureBlocks are silently skipped
+        elif isinstance(block, ValidationBlock) and inline and block.line_number in by_line:
+            parts.append(_inline_note(by_line[block.line_number]))
+            parts.append("")
+        # Other ValidationBlocks and FixtureBlocks are silently skipped
 
-    return "\n".join(parts).strip() + "\n"
+    text = "\n".join(parts).strip() + "\n"
+    if verification:
+        text += "\n" + _summary(verification)
+    return text
+
+
+# ── Verification notes ──────────────────────────────────────────────────────
+
+_LEGEND = (
+    "*Assumption*: stated without proof; checked to be consistent with the example data. "
+    "*Verified (Z3)*: follows from its assumptions for every value they allow, checked by "
+    "the Z3 SMT solver. *Proved (Lean)*: a machine-checked proof in Lean 4 with Mathlib "
+    "that relies only on Lean's standard axioms. *Not verified*: stated, but no check has "
+    "succeeded yet. A hand-written Lean statement is marked with whether the author "
+    "approved it as a faithful rendering of the claim."
+)
+
+
+def _evidence(entry: dict) -> str:
+    level, kind, detail = entry["level"], entry["kind"], entry.get("detail", "")
+    if kind == "Axiom":
+        text = "Assumption"
+        if "fixture data" in detail:
+            text += "; consistent with the example data"
+        return text
+    text = {
+        "Lean-proved": "Proved (Lean)",
+        "Z3-checked": "Verified (Z3)",
+    }.get(level, "Not verified")
+    if kind == "Theorem":
+        text += {
+            "approved": "; statement approved by the author",
+            "changed": "; statement changed since the author approved it",
+        }.get(entry.get("approval"), "; statement not yet approved by the author")
+    return text
+
+
+def _cell(text: str) -> str:
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def _inline_note(entries: list[dict]) -> str:
+    lines = ["> **Verification**"]
+    for e in entries:
+        lines.append(f"> - **{e['name']}** {e['claim']} — {_evidence(e)}")
+    return "\n".join(lines)
+
+
+def _summary(entries: list[dict]) -> str:
+    lines = [
+        "## Verification",
+        "",
+        "| Claim | Statement | Evidence |",
+        "|---|---|---|",
+    ]
+    for e in entries:
+        lines.append(f"| {e['name']} | {_cell(e['claim'])} | {_evidence(e)} |")
+    lines += ["", _LEGEND, ""]
+    return "\n".join(lines)
 
 
 def _filter_by_depth(blocks: list[Block], target_depth: str) -> list[Block]:

@@ -20,10 +20,16 @@ approve, and a determined process outside Claude Code can edit any file.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import sys
 from pathlib import Path
+
+
+def live_validation() -> bool:
+    value = os.environ.get("CLAUDE_PLUGIN_OPTION_LIVE_VALIDATION", "true")
+    return value.strip().lower() not in {"false", "0", "no", "off"}
 
 
 def emit(decision: str, reason: str) -> None:
@@ -55,6 +61,12 @@ def guard_model_edit(tool: str, tool_input: dict, path: Path) -> None:
     approved = cache.get("approved") or {}
     if not approved:
         return
+    if not live_validation():
+        # Checking the lock means running the paper, which the user has
+        # switched off. Let them decide instead.
+        emit("ask", "math-paper-creator: this paper has approved claim statements, and "
+                    "automatic validation is off, so the plugin can't check whether this "
+                    f"edit changes them ({', '.join(sorted(approved))}). Allow the edit?")
 
     if tool == "Write":
         new = tool_input.get("content", "")
