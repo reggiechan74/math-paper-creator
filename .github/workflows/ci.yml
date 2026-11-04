@@ -53,7 +53,7 @@ jobs:
           curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - name: Cache Mathlib downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/mathlib
           key: mathlib-${{ hashFiles('lean/lake-manifest.json', 'lean/lean-toolchain') }}
